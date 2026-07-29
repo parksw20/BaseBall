@@ -1261,7 +1261,12 @@ function resolveContact(fin,swing){
   const sw=swingWindow(), cd=contactDist(); // 타격율 능력치로 확장된 판정 범위
   if(Math.abs(dt)>sw||dist>cd){
     addPitchMark(fin.x,fin.y,true);                      // 헛스윙도 스트라이크 잔상(주황)
-    G.pitchFollow={t:1};
+    if(G.stealLive&&!G.stealLive.done){                  // 헛스윙 중 도루 → 포수 저지 송구 (없으면 배너가 영구 대기)
+      G.pitchFollow=null;
+      const tb=BASES[G.stealLive.b+1];
+      G.stealThrow={from:V3(fin.x,fin.y,0),to:tb.clone().setY(1.0),t:0,
+                    dur:0.25+Math.hypot(tb.x-0,tb.z+2.5)/31+rand(-0.08,0.12)};
+    } else G.pitchFollow={t:1};
     addStrike('헛스윙! 스트라이크');return;
   }
   sfx('hit');
@@ -2096,6 +2101,11 @@ function update(dt){
   if(G.phase==='banner'){
     G.bannerT-=dt;
     updateRunners(dt);
+    if(G.bannerT<-4&&G.stealLive&&!G.stealLive.done&&!G.stealThrow){ // 안전장치: 도루 판정이 고아가 되면 주자 귀루 처리
+      const sr=G.runners[G.stealLive.b];
+      if(sr){sr.anim=null;sr.model.position.copy(BASES[G.stealLive.b]);}
+      G.stealLive=null;
+    }
     if(G.bannerT<=0&&!(G.stealLive&&!G.stealLive.done)){
       const f=G.afterBanner;G.afterBanner=null;hideBanner();if(f)f();}
   }
