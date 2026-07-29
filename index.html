@@ -1392,10 +1392,12 @@ function pathFrom(baseIdx,adv){ // baseIdx: -1=타자(홈부터). 경유지 배�
 function startRunners(pl){
   if(pl.hitPlay){ // 안타: 모두 달리기 시작, 각 베이스에서 공 위치 보고 추가 진루 판단
     const ents=[];
-    for(let i=2;i>=0;i--){ if(G.runners[i]) ents.push({w:G.runners[i],tgt:i+1,state:'run',heldAt:i,isBatter:false}); }
+    for(let i=2;i>=0;i--){ if(G.runners[i]){
+      G.runners[i].model.position.lerpVectors(BASES[i],STATIONS[i+1],0.08); // 리드: 미리 다음 베이스쪽
+      ents.push({w:G.runners[i],tgt:i+1,state:'run',heldAt:i,isBatter:false}); }}
     const hbr=getRunner(0xd6b93a);
     hbr.model.position.set(1.05*G.batSide,0,0);
-    ents.push({w:hbr,tgt:0,state:'run',heldAt:-1,isBatter:true});
+    ents.push({w:hbr,tgt:0,state:'run',heldAt:-1,isBatter:true,delay:0.3}); // 배팅 후 출발이라 늦다
     G.batterRunner=hbr; batterModel.visible=false;
     G.playCtl.hitCtl={ents,throwDone:false,outs:0,runs:0};
     return;
@@ -1403,12 +1405,13 @@ function startRunners(pl){
   if(pl.ground){ // 땅볼: 포스 상태인 주자만 한 베이스 전진(레이스는 송구 도착 시 판정)
     const b=G.bases, gspd=9.5;
     const f2=b[0], f3=b[0]&&b[1], fH=b[0]&&b[1]&&b[2];
-    if(G.runners[2]&&fH) G.runners[2].anim={path:[HOMEP.clone()],speed:gspd,seg:0};
-    if(G.runners[1]&&f3) G.runners[1].anim={path:[BASES[2].clone()],speed:gspd,seg:0};
-    if(G.runners[0]&&f2) G.runners[0].anim={path:[BASES[1].clone()],speed:gspd,seg:0};
+    const lead=(i,to)=>G.runners[i].model.position.lerpVectors(BASES[i],to,0.10); // 리드 후 스타트
+    if(G.runners[2]&&fH){ lead(2,HOMEP); G.runners[2].anim={path:[HOMEP.clone()],speed:gspd,seg:0}; }
+    if(G.runners[1]&&f3){ lead(1,BASES[2]); G.runners[1].anim={path:[BASES[2].clone()],speed:gspd,seg:0}; }
+    if(G.runners[0]&&f2){ lead(0,BASES[1]); G.runners[0].anim={path:[BASES[1].clone()],speed:gspd,seg:0}; }
     const gbr=getRunner(0xd6b93a);
     gbr.model.position.set(1.05*G.batSide,0,0);
-    gbr.anim={path:[BASES[0].clone()],speed:gspd,seg:0};
+    gbr.anim={path:[BASES[0].clone()],speed:gspd,seg:0,delay:0.3}; // 배팅 후 출발이라 늦다
     G.batterRunner=gbr; batterModel.visible=false;
     return;
   }
@@ -1419,18 +1422,21 @@ function startRunners(pl){
     const r=G.runners[i];
     r.anim={path:pathFrom(i,pl.basesHit>0?pl.basesHit:0),speed:spd,seg:0,t:0};
     if(r.anim.path.length===0)r.anim=null;
+    else r.model.position.lerpVectors(BASES[i],r.anim.path[0],0.08); // 리드
   }}
   // 타자 주자
   const br=getRunner(0xd6b93a);
   br.model.position.set(1.05*G.batSide,0,0);
-  br.anim={path:pathFrom(-1,adv),speed:spd,seg:0,t:0};
+  br.anim={path:pathFrom(-1,adv),speed:spd,seg:0,t:0,delay:0.3};
   G.batterRunner=br;
   batterModel.visible=false; // 타자 모델 → 주자로 교대
 }
 function updateRunners(dt){
   const all=[G.batterRunner,...G.runners].filter(r=>r&&r.anim);
   for(const r of all){
-    const a=r.anim, target=a.path[a.seg];
+    const a=r.anim;
+    if(a.delay>0){a.delay-=dt;continue;} // 타자 주자: 스윙 팔로스루 후 출발
+    const target=a.path[a.seg];
     if(!target){r.anim=null;continue;}
     const p=r.model.position, d=target.clone().sub(p); d.y=0;
     const dist=d.length();
@@ -1570,7 +1576,7 @@ function updatePlay(dt){
         const margin=c=>{
           const runner=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(!runner||!runner.anim) return -99; // 이미 베이스 도달 → 던져봤자 세이프
-          const rT=runner.model.position.distanceTo(c.to)/9.5;
+          const rT=runner.model.position.distanceTo(c.to)/9.5+(runner.anim.delay||0); // 타자 출발 지연 반영
           const bT=resp.model.position.distanceTo(c.to)<8
             ? resp.model.position.distanceTo(c.to)/7.5      // 직접 밟기
             : ball.position.distanceTo(c.to)/28+0.15;       // 송구
@@ -1744,6 +1750,7 @@ function updateHitRunners(ctl,dt){
   const hc=ctl.hitCtl; if(!hc) return true;
   for(const e of hc.ents){
     if(e.state!=='run') continue;
+    if(e.delay>0){e.delay-=dt;continue;} // 타자 주자 출발 지연
     const st=STATIONS[e.tgt], p=e.w.model.position;
     const d=V3(st.x-p.x,0,st.z-p.z), L=d.length();
     if(L>0.3){ d.normalize(); p.addScaledVector(d,RUNSPD*dt);
