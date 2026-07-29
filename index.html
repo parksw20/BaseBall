@@ -1212,6 +1212,7 @@ function pitchArrives(){
       const tb=BASES[G.stealLive.b+1];
       G.stealThrow={from:V3(fin.x,fin.y,0),to:tb.clone().setY(1.0),t:0,
                     dur:0.25+Math.hypot(tb.x-0,tb.z+2.5)/31+rand(-0.08,0.12)}; // 포수 어깨 편차
+      G.camMode='wide'; G.camSnap=true; // 저지 레이스를 경기장 뷰로
     } else G.pitchFollow={t:1};                          // 같은 궤적 그대로 포수 라인까지 연장
     sfx('mitt');
     if(inZ) addStrike('스트라이크!'); else addBall();
@@ -1274,6 +1275,7 @@ function resolveContact(fin,swing){
       const tb=BASES[G.stealLive.b+1];
       G.stealThrow={from:V3(fin.x,fin.y,0),to:tb.clone().setY(1.0),t:0,
                     dur:0.25+Math.hypot(tb.x-0,tb.z+2.5)/31+rand(-0.08,0.12)};
+      G.camMode='wide'; G.camSnap=true; // 저지 레이스를 경기장 뷰로
     } else G.pitchFollow={t:1};
     addStrike('헛스윙! 스트라이크');return;
   }
