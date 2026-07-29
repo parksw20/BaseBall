@@ -1134,6 +1134,7 @@ function throwPitch(power,tx,ty,curPxX,curPxY){
   const rx=(pinfo&&pinfo.throws==='좌')?-0.35:0.35; // 좌투=1루측, 우투=3루측 릴리스
   G.pitch={tx,ty,cx,cy,brk,rx,t:0,dur,power,arc:0.4*(1-0.45*power),done:false,
            speedKmh:Math.round(speed*3.6*1.15)};
+  G.foulFly=null; // 이전 파울 연출 종료
   G.phase='ballFlight'; ball.visible=true; blob.visible=true;
   { // 최종 도달점·판정을 미리 계산해 예고 링 세팅
     const fin=pitchPosAt(G.pitch,1), R2=0.11;
@@ -1255,6 +1256,13 @@ function walkAdvance(){
 }
 
 /* ================== 타격 ================== */
+function launchFoulBall(deg,launch,exitV){ // 파울 타구도 실제 궤적으로 보여준다 (판정과 무관한 연출)
+  const th=launch*Math.PI/180, dir=polar(deg,1);
+  G.foulFly={pos:V3(0,1.0,0),
+    vel:V3(dir.x*exitV*Math.cos(th),exitV*Math.sin(th),dir.z*exitV*Math.cos(th)),t:0};
+  G.camMode='wide'; G.camSnap=true;
+  ball.visible=true; blob.visible=true;
+}
 function resolveContact(fin,swing){
   const dt=swing.timeErr;
   const dist=Math.hypot(swing.x-fin.x,swing.y-fin.y);
@@ -1277,13 +1285,18 @@ function resolveContact(fin,swing){
       if(sr){sr.anim=null;sr.model.position.copy(BASES[G.stealLive.b]);}
       G.stealLive=null;}
     sfx('foul');
+    launchFoulBall(180+rand(-35,35),rand(35,75),8+q*25); // 팁 → 뒤로 튀는 공
     if(G.debugCenter){ G.phase='banner'; G.bannerT=0.5; G.afterBanner=toPrePitch; return; }
     if(G.strikes<2)G.strikes++; refreshHUD();
-    showBanner('파울팁!',toPrePitch,0.9); return;
+    showBanner('파울팁!',toPrePitch,1.4); return;
   }
   // 이르면(dt<0) 당겨침 → 좌익(-deg), 늦으면 우익(+deg). 배트 안쪽 컨택도 당김.
   let deg=dt*480+(swing.x-fin.x)*55+rand(-6,6); deg=clamp(deg,-60,60);
-  let launch=9+(fin.y-swing.y)*95+rand(-6,6); launch=clamp(launch,-8,66);
+  // 컨택 상하 오프셋 → 발사각: 공 밑을 치면(+) 고각 팝업, 공 위를 치면(-) 땅에 꽂힌다
+  const off=fin.y-swing.y;
+  let launch=6+off*170+rand(-8,8);
+  if(q<0.5) launch+=(off>=0?1:-1)*(0.5-q)*60; // 빗맞을수록 극단 각도
+  launch=clamp(launch,-42,84);
   // 투구 속도가 빠를수록 반발이 커서 정타 시 더 멀리 간다 (+ 발사각은 포물선 공식으로 반영)
   const pitchV=19+15*(G.pitch?G.pitch.power:0.5);
   const binfo2=curBatterInfo(); // 타자 Power 능력치 → 타구속도 보정
@@ -1293,9 +1306,10 @@ function resolveContact(fin,swing){
       if(sr){sr.anim=null;sr.model.position.copy(BASES[G.stealLive.b]);}
       G.stealLive=null;}
     sfx('foul');
+    launchFoulBall(deg,launch,exitV); // 파울 방향·각도 그대로 비행
     if(G.debugCenter){ G.phase='banner'; G.bannerT=0.5; G.afterBanner=toPrePitch; return; }
     if(G.strikes<2)G.strikes++; refreshHUD();
-    showBanner('파울!',toPrePitch,0.9); return;
+    showBanner('파울!',toPrePitch,1.5); return;
   }
   G.stealFrom=G.stealLive?G.stealLive.b:-1; // 뜬공 포구 시 귀루 레이스(더블오프)용
   G.stealLive=null; // 인플레이 → 도루는 일반 주루로 흡수
@@ -1303,7 +1317,8 @@ function resolveContact(fin,swing){
 }
 function judgePlay(deg,launch,exitV){
   const th=launch*Math.PI/180;
-  const distance=launch>0?exitV*exitV*Math.sin(2*th)/9.8:exitV*1.6;
+  // 급하강 타구일수록 짧게 구른다 (꽂힌 공은 발 앞에 떨어짐)
+  const distance=launch>0?exitV*exitV*Math.sin(2*th)/9.8:exitV*clamp(1.6+launch*0.03,0.3,1.6);
   const hang=launch>0?2*exitV*Math.sin(th)/9.8:0.5;
   const land=polar(deg,distance);
   const fence=fenceR(deg);
@@ -2088,6 +2103,15 @@ function update(dt){
   }
   // 도루 진행: 주자 이동(ballFlight 포함) + 포수 송구 레이스
   if(G.stealLive&&!G.stealLive.done&&G.phase==='ballFlight') updateRunners(dt);
+  if(G.foulFly){ // 파울 타구 비행 (연출 전용, 판정 없음)
+    const F=G.foulFly; F.t+=dt;
+    F.vel.y-=9.8*dt; F.pos.addScaledVector(F.vel,dt);
+    if(F.pos.y<0.11){ F.pos.y=0.11;
+      if(Math.abs(F.vel.y)>1.5){F.vel.y=-F.vel.y*0.4;F.vel.x*=0.7;F.vel.z*=0.7;}
+      else F.vel.multiplyScalar(Math.max(0,1-2*dt)); }
+    ball.visible=true; ball.position.copy(F.pos);
+    if(F.t>2.2){ G.foulFly=null; }
+  }
   if(G.stealThrow){
     const th=G.stealThrow; th.t+=dt;
     const k2=Math.min(1,th.t/th.dur);
