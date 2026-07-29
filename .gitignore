@@ -1,0 +1,5 @@
+# 선수 사진·구단 로고 등 권리물은 공개 저장소에서 제외 (로컬 빌드 산출물)
+KBO_DB_Builder/output/
+KBO_DB_Builder/build_full.log
+__pycache__/
+*.pyc
