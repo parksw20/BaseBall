@@ -1266,7 +1266,7 @@ function launchFoulBall(deg,launch,exitV){ // 파울 타구도 실제 궤적으�
 }
 function resolveContact(fin,swing){
   const dt=swing.timeErr;
-  const dist=Math.hypot(swing.x-fin.x,swing.y-fin.y);
+  const dist=Math.hypot(swing.x-fin.x,(swing.y-fin.y)*0.55); // 상하 오프셋은 각도용 — 컨택질 페널티는 절반만
   const sw=swingWindow(), cd=contactDist(); // 타격율 능력치로 확장된 판정 범위
   if(Math.abs(dt)>sw||dist>cd){
     addPitchMark(fin.x,fin.y,true);                      // 헛스윙도 스트라이크 잔상(주황)
@@ -1281,7 +1281,7 @@ function resolveContact(fin,swing){
   }
   sfx('hit');
   let q=(1-Math.abs(dt)/sw)*0.5+(1-dist/cd)*0.5;
-  if(!G.playerBatting) q*=rand(0.45,0.85); // CPU는 정타 확률 낮춤(빗맞음 분포)
+  if(!G.playerBatting) q*=rand(0.5,0.95); // CPU는 정타 확률 낮춤(빗맞음 분포, 가끔은 정타 홈런)
   if(q<0.25){ // 빗맞은 컨택 = 파울팁
     if(G.stealLive){const sr=G.runners[G.stealLive.b];
       if(sr){sr.anim=null;sr.model.position.copy(BASES[G.stealLive.b]);}
@@ -1302,7 +1302,9 @@ function resolveContact(fin,swing){
   // 투구 속도가 빠를수록 반발이 커서 정타 시 더 멀리 간다 (+ 발사각은 포물선 공식으로 반영)
   const pitchV=19+15*(G.pitch?G.pitch.power:0.5);
   const binfo2=curBatterInfo(); // 타자 Power 능력치 → 타구속도 보정
-  const exitV=(32+pitchV*0.45)*(0.4+0.6*q)*(binfo2?0.82+binfo2.Power*0.0032:1);
+  // 홈런은 "잘 맞은 공"만: q^1.6로 정타 요구 + 시즌 홈런 수 데이터 보정 (담장 92~100m 기준 최대 ~133m)
+  const hrF=binfo2?0.97+Math.min(binfo2.HR||0,40)*0.003:1;
+  const exitV=(22+pitchV*0.32)*(0.35+0.65*Math.pow(q,1.6))*(binfo2?0.82+binfo2.Power*0.0032:1)*hrF;
   if(Math.abs(deg)>45){ // 파울: 도루 주자는 귀루
     if(G.stealLive){const sr=G.runners[G.stealLive.b];
       if(sr){sr.anim=null;sr.model.position.copy(BASES[G.stealLive.b]);}
@@ -1420,7 +1422,7 @@ function startRunners(pl){
     return;
   }
   if(pl.ground){ // 땅볼: 포스 상태인 주자만 한 베이스 전진(레이스는 송구 도착 시 판정)
-    const b=G.bases, gspd=9.5;
+    const b=G.bases, gspd=8.6;
     const f2=b[0], f3=b[0]&&b[1], fH=b[0]&&b[1]&&b[2];
     const lead=(i,to)=>G.runners[i].model.position.lerpVectors(BASES[i],to,0.10); // 리드 후 스타트
     if(G.runners[2]&&fH){ lead(2,HOMEP); G.runners[2].anim={path:[HOMEP.clone()],speed:gspd,seg:0}; }
@@ -1466,9 +1468,12 @@ function updateRunners(dt){
 }
 
 /* ---- 땅볼 송구/판정 ---- */
+const WINDUP=0.30; // 포구→송구 릴리스 시간 (기존 0.15의 2배)
+const windupOf=ctl=>{ ctl.throwsMade=(ctl.throwsMade||0)+1; // 병살 턴 등 릴레이는 퀵 릴리스
+  return ctl.throwsMade>1?WINDUP*0.5:WINDUP; };
 function startThrow(ctl,from){
   const tgt=ctl.throwQueue[0];
-  ctl.thrown={from,to:tgt.to.clone().setY(1.1),t:0,dur:Math.max(0.25,from.distanceTo(tgt.to)/28)};
+  ctl.thrown={from,to:tgt.to.clone().setY(1.1),t:0,dur:Math.max(0.2,from.distanceTo(tgt.to)/34),windup:windupOf(ctl)};
 }
 function evalForce(ctl,ev){ // 공(또는 베이스 밟기)이 도착한 순간 주자 레이스 판정
   const runner=ev===-1?G.batterRunner:G.runners[ev];
@@ -1492,7 +1497,7 @@ function nextGroundStage(ctl,pl,fromPos,carrier){ // 다음 포스: 가까우면
     ctl.state='throw';
     if(best&&bd>4){ // 커버 없음 → 사람에게 송구
       ctl.thrown={from:fromPos,to:best.model.position.clone().setY(1.1),t:0,
-        dur:Math.max(0.25,fromPos.distanceTo(best.model.position)/28),receiver:best};
+        dur:Math.max(0.2,fromPos.distanceTo(best.model.position)/34),receiver:best,windup:windupOf(ctl)};
       best.state='hold';
     } else startThrow(ctl,fromPos);
     if(carrier) carrier.model.lookAt(ctl.thrown.to);
@@ -1593,10 +1598,10 @@ function updatePlay(dt){
         const margin=c=>{
           const runner=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(!runner||!runner.anim) return -99; // 이미 베이스 도달 → 던져봤자 세이프
-          const rT=runner.model.position.distanceTo(c.to)/9.5+(runner.anim.delay||0); // 타자 출발 지연 반영
+          const rT=runner.model.position.distanceTo(c.to)/8.6+(runner.anim.delay||0); // 타자 출발 지연 반영
           const bT=resp.model.position.distanceTo(c.to)<8
             ? resp.model.position.distanceTo(c.to)/7.5      // 직접 밟기
-            : ball.position.distanceTo(c.to)/28+0.15;       // 송구
+            : ball.position.distanceTo(c.to)/34+WINDUP;     // 송구(릴리스 시간 포함, 구속 34m/s)
           return rT-bT;
         };
         // 병살 가능하면 반드시 2루 먼저 → 1루 릴레이 (아웃 하나만 챙기고 끝내지 않게)
@@ -1619,7 +1624,10 @@ function updatePlay(dt){
       } else if(ctl.t>12&&!ctl.fieldingDone){ ctl.fieldingDone=true; G.camMode='wide'; }
     }
   } else if(ctl.state==='dblOff'){ // 뜬공 포구 → 도루 주자 귀루 vs 송구 레이스
-    const d=ctl.dbl, th=d.thrown; th.t+=dt;
+    const d=ctl.dbl, th=d.thrown;
+    if(th.windup===undefined) th.windup=WINDUP;
+    if(th.windup>0){ th.windup-=dt; ball.position.copy(th.from); }
+    else th.t+=dt;
     const k=Math.min(1,th.t/th.dur);
     ball.position.lerpVectors(th.from,th.to,k);
     ball.position.y+=Math.sin(Math.PI*k)*1.4;
@@ -1636,7 +1644,9 @@ function updatePlay(dt){
       ctl.state='caught'; ctl.resolveTimer=0.9;
     }
   } else if(ctl.state==='throw'&&ctl.thrown){
-    const th=ctl.thrown; th.t+=dt;
+    const th=ctl.thrown;
+    if(th.windup>0){ th.windup-=dt; ball.position.copy(th.from); } // 던지기 전 잡고 준비
+    else th.t+=dt;
     const k=Math.min(1,th.t/th.dur);
     ball.position.lerpVectors(th.from,th.to,k);
     ball.position.y+=Math.sin(Math.PI*k)*1.2;
@@ -1651,7 +1661,9 @@ function updatePlay(dt){
       } else { ctl.state='caught'; ctl.resolveTimer=0.45; }
     }
   } else if(ctl.state==='throwIn'&&ctl.thrown){ // 외야 송구: 도착 순간 그 베이스로 뛰던 주자 판정
-    const th=ctl.thrown; th.t+=dt;
+    const th=ctl.thrown;
+    if(th.windup>0){ th.windup-=dt; ball.position.copy(th.from); }
+    else th.t+=dt;
     const k=Math.min(1,th.t/th.dur);
     ball.position.lerpVectors(th.from,th.to,k);
     ball.position.y+=Math.sin(Math.PI*k)*2.2;
@@ -1731,11 +1743,11 @@ function startHitThrow(ctl,from,stIdx){
   ctl.state='throwIn';
   if(best&&bd>4){ // 빈 베이스로 던지지 않는다
     ctl.thrown={from,to:best.model.position.clone().setY(1.1),t:0,
-      dur:Math.max(0.25,from.distanceTo(best.model.position)/28),stIdx,receiver:best};
+      dur:Math.max(0.2,from.distanceTo(best.model.position)/34),stIdx,receiver:best,windup:WINDUP};
     best.state='hold';
   } else {
     ctl.thrown={from,to:st.clone().setY(1.1),t:0,
-      dur:Math.max(0.25,from.distanceTo(st)/28),stIdx};
+      dur:Math.max(0.2,from.distanceTo(st)/34),stIdx,windup:WINDUP};
   }
 }
 function evalHitStationAndContinue(ctl,pl,stIdx,fromPos){
@@ -1759,9 +1771,9 @@ function estBallTime(ctl,stIdx){ // 공이 해당 베이스에 도달할 예상 
   if(ballSim.active){
     const resp=ctl.pl.respIdx>=0?fielders[ctl.pl.respIdx]:null;
     const tf=resp?resp.model.position.distanceTo(ballSim.pos)/7.5:2;
-    return tf+ballSim.pos.distanceTo(st)/28+0.4;
+    return tf+ballSim.pos.distanceTo(st)/34+0.4+WINDUP;
   }
-  return ball.position.distanceTo(st)/28+0.2;
+  return ball.position.distanceTo(st)/34+0.05+WINDUP;
 }
 function updateHitRunners(ctl,dt){
   const hc=ctl.hitCtl; if(!hc) return true;
