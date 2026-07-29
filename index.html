@@ -1483,19 +1483,22 @@ function evalForce(ctl,ev){ // 공(또는 베이스 밟기)이 도착한 순간 
     showCall('아웃!','#ff6b6b'); }
   else if(runner) showCall('세이프!','#7ed957');
 }
-function nextGroundStage(ctl,pl,fromPos,carrier){ // 다음 포스: 가까우면 직접 밟고, 멀면 송구
+function nextGroundStage(ctl,pl,fromPos,carrier){ // 다음 포스: 직접 뛰기 vs 송구 — 더 빠른 쪽 선택
   if(!ctl.throwQueue.length){ finishGround(ctl,pl); return; }
   const tgt=ctl.throwQueue[0];
-  if(carrier&&carrier.model.position.distanceTo(tgt.to)<8){
+  // 후보 1: 잡은 수비수가 직접 뛰어가 밟기
+  const selfT=carrier?carrier.model.position.distanceTo(tgt.to)/7.5:1e9;
+  // 후보 2: 송구 — 커버 있으면 베이스로, 없으면 최근접 수비수에게 주고 그가 뛰어감
+  let best=null,bd=1e9;
+  fielders.forEach(f=>{ if(f.label==='C'||f===carrier)return;
+    const d=f.model.position.distanceTo(tgt.to); if(d<bd){bd=d;best=f;} });
+  const covered=!(best&&bd>4);
+  const throwT=WINDUP+fromPos.distanceTo(covered?tgt.to:best.model.position)/34+(covered?0:bd/7.5);
+  if(carrier&&selfT<=throwT+0.15){ // 던져 봤자 더 늦으면 직접 뛴다 (스로잉 낭비 방지)
     ctl.state='carry'; ctl.carryTgt=tgt; ctl.carrier=carrier;
   } else {
-    // 베이스에 커버 수비수가 없으면 빈 베이스로 던지지 않는다 —
-    // 그 베이스에서 가장 가까운 수비수에게 송구하고, 받은 사람이 뛰어가 밟는다
-    let best=null,bd=1e9;
-    fielders.forEach(f=>{ if(f.label==='C'||f===carrier)return;
-      const d=f.model.position.distanceTo(tgt.to); if(d<bd){bd=d;best=f;} });
     ctl.state='throw';
-    if(best&&bd>4){ // 커버 없음 → 사람에게 송구
+    if(!covered){ // 커버 없음 → 사람에게 송구, 받은 사람이 뛰어가 밟는다
       ctl.thrown={from:fromPos,to:best.model.position.clone().setY(1.1),t:0,
         dur:Math.max(0.2,fromPos.distanceTo(best.model.position)/34),receiver:best,windup:windupOf(ctl)};
       best.state='hold';
