@@ -103,6 +103,7 @@
   <button id="btnMute" title="효과음 켜기/끄기">🔊</button>
   <button id="btnDebug" title="디버그: CPU가 중앙 직구만 던짐">🐞</button>
   <button id="btnNight" title="야간 경기">🌙</button>
+  <button id="btnAssets" title="내 PC의 선수 사진·로고 연결 (KBO_DB_Builder/output 폴더 선택 — 내 화면에만 표시)">📁</button>
 </div>
 <div id="gaugeWrap" class="hudbox"><div id="gaugeBar"></div></div>
 <div id="msg" class="hudbox"></div>
@@ -390,14 +391,14 @@ const stadium={towers:[],bulbs:[],lights:[]};
     const wallTex=new THREE.CanvasTexture(wallCv);
     wallTex.wrapS=THREE.RepeatWrapping; wallTex.repeat.set(-8,1); // 안쪽에서 볼 때 정방향
     const wall=new THREE.Mesh(
-      new THREE.CylinderGeometry(18,18,2.2,64,1,true,D2R(100),D2R(160)),
+      new THREE.CylinderGeometry(12.6,12.6,2.2,64,1,true,D2R(100),D2R(160)),
       new THREE.MeshStandardMaterial({map:wallTex,side:THREE.DoubleSide,roughness:0.9}));
     wall.position.y=1.1; grp.add(wall);
   }
   // 내야 그랜드스탠드(30% 당김, 관중 없음) + 외야 블리처
   const rings=[];
-  rings.push(mkRing(18.5,30,8,2.3,100,160,seatA));
-  rings.push(mkRing(31,39,7,10.3,100,160,seatB));
+  rings.push(mkRing(13,21,8,2.3,100,160,seatA));
+  rings.push(mkRing(21.7,27.3,7,10.3,100,160,seatB));
   rings.push(mkRing(104,122,10,0,-52,104,seatC));
   // 관중 (인스턴스 박스, 랜덤 컬러)
   const N=1200;
@@ -431,7 +432,7 @@ const stadium={towers:[],bulbs:[],lights:[]};
     leg.position.set(sx,6,118.4); grp.add(leg);
   }
   // 조명탑 4기 — 메인 2기는 외야 좌우 코너(타석 시점 상공에 보임), 보조 2기는 홈 뒤
-  for(const [tx,tz,ph] of [[-80,86,38],[80,86,38],[-55,-25,26],[55,-25,26]]){
+  for(const [tx,tz,ph] of [[-52,110,38],[52,110,38],[-55,-25,26],[55,-25,26]]){
     const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.0,ph,10),
       new THREE.MeshStandardMaterial({color:0x4a525a}));
     pole.position.set(tx,ph/2,tz); grp.add(pole);
@@ -458,8 +459,8 @@ function jumboLogo(t){ // 전광판용 팀 로고 (HD 우선 → 공식 엠블�
     const im=new Image();
     im.onload=()=>drawJumbo();
     im.onerror=()=>{ im.onerror=null;
-      if(t.logo) im.src=G.kbo.base+t.logo.replace('initial_','emblem_'); };
-    im.src=G.kbo.base+'logos_hd/'+t.code+'.png';
+      if(t.logo) im.src=AST(t.logo.replace('initial_','emblem_')); };
+    im.src=AST('logos_hd/'+t.code+'.png');
     jumboLogoCache[t.code]=im;
   }
   return jumboLogoCache[t.code];
@@ -732,6 +733,7 @@ function getRunner(color){
   if(!r){ const m=makeHumanoid(color,0x555555); scene.add(m);
     r={model:m,inUse:false,anim:null}; runnerPool.push(r); }
   r.inUse=true; r.model.visible=true;
+  if(r.model.parts&&r.model.parts.torso) r.model.parts.torso.material=mat(color); // 풀 재사용 시 유니폼 색 갱신
   r.anim=null; // 풀 재사용 시 이전 플레이의 주루 애니메이션 잔재 제거 (홈런 즉시처리 등으로 미완료였을 수 있음)
   r.model.rotation.set(0,0,0); r.model.position.y=0;
   return r;
@@ -771,13 +773,13 @@ function updateBatterCard(){
   if(!b&&!p){el.style.display='none';return;}
   el.style.display='flex';
   const bi=document.getElementById('batPhoto');
-  if(b&&b.photo){bi.style.display='block';bi.src=G.kbo.base+b.photo;}
+  if(b&&b.photo){bi.style.display='block';bi.src=AST(b.photo);}
   else bi.style.display='none';
   document.getElementById('batTxt').innerHTML=
     b?`타자 <b>${b.name}</b> OVR ${b.Overall} · ${b.AVG||'-'} / ${b.HR||0}HR`+
       `<br>컨택 ${b.Contact} · 파워 ${b.Power} · 선구 ${b.Eye}`:'';
   const pi=document.getElementById('pitPhoto');
-  if(p&&p.photo){pi.style.display='block';pi.src=G.kbo.base+p.photo;}
+  if(p&&p.photo){pi.style.display='block';pi.src=AST(p.photo);}
   else pi.style.display='none';
   const fk2=G.top?'cpu':'my';
   const pc=(G.pitchCount&&G.pitchCount[fk2])||0;
@@ -795,20 +797,20 @@ function renderRosters(){
     const closed=document.getElementById(side==='my'?'rosterL':'rosterR').classList.contains('closed');
     let h=`<h4 onclick="toggleRoster('${side}')">${closed?'▸':'▾'} ${teamLogo(t,'roslogo')}${t.fullName}</h4>`;
     t.lineup.forEach((b,idx)=>{h+=`<div class="r" id="ros-${side}-b${idx}">`+
-      `<img src="${b.photo?G.kbo.base+b.photo:''}" onerror="this.style.visibility='hidden'">`+
+      `<img src="${b.photo?AST(b.photo):''}" onerror="this.style.visibility='hidden'">`+
       `<span>${idx+1}. ${b.name} <span class="ovr">OVR ${b.Overall}</span></span></div>`;});
     h+=`<div class="sec">선발투수</div>`;
     const curIdx=(side==='my'?G.pitcherIdx.my:G.pitcherIdx.cpu)%t.pitchers.length;
     const pi3=t.pitchers[curIdx];
     if(pi3){h+=`<div class="r" id="ros-${side}-p">`+
-      `<img src="${pi3.photo?G.kbo.base+pi3.photo:''}" onerror="this.style.visibility='hidden'">`+
+      `<img src="${pi3.photo?AST(pi3.photo):''}" onerror="this.style.visibility='hidden'">`+
       `<span>${pi3.name} <span class="ovr">OVR ${pi3.Overall}</span></span></div>`;}
     const bp=(G.bullpen&&G.bullpen[side])||[];
     if(bp.length){
       h+=`<div class="sec">불펜${side==='my'?' (클릭=교체)':''}</div>`;
       bp.forEach(bIdx=>{const p2=t.pitchers[bIdx]; if(!p2||bIdx===curIdx)return;
         h+=`<div class="r bp" ${side==='my'?`onclick="swapPitcher('my',${bIdx})"`:''}>`+
-          `<img src="${p2.photo?G.kbo.base+p2.photo:''}" onerror="this.style.visibility='hidden'">`+
+          `<img src="${p2.photo?AST(p2.photo):''}" onerror="this.style.visibility='hidden'">`+
           `<span>${p2.name} <span class="ovr">OVR ${p2.Overall}</span></span></div>`;});
     }
     return h;
@@ -879,10 +881,43 @@ function ensureCell(){for(const s of G.score){if(s[G.inning-1]===undefined)s[G.i
 
 /* ---- HUD ---- */
 const $=id=>document.getElementById(id);
+/* ---- 로컬 자산: 사진·로고는 저장소에 없음 — 내 PC 폴더를 연결하면 나만 보임 ---- */
+const LOCAL_ASSETS={};
+function AST(rel){ return LOCAL_ASSETS[rel] || (G.kbo?G.kbo.base+rel:rel); }
+async function pickAssets(){
+  try{
+    let files=[];
+    if(window.showDirectoryPicker){
+      const dir=await showDirectoryPicker();
+      const walk=async(h,pre)=>{ for await(const [n,e] of h.entries()){
+        if(e.kind==='file') files.push([pre+n,await e.getFile()]);
+        else await walk(e,pre+n+'/'); } };
+      await walk(dir,'');
+    }else{
+      files=await new Promise((res,rej)=>{
+        const inp=document.createElement('input');
+        inp.type='file'; inp.webkitdirectory=true;
+        inp.onchange=()=>res([...inp.files].map(f=>[f.webkitRelativePath.split('/').slice(1).join('/'),f]));
+        inp.oncancel=()=>rej('cancel'); inp.click();
+      });
+    }
+    let n=0;
+    for(const [p0,f] of files){
+      if(!/\.(png|jpe?g|gif|webp)$/i.test(p0)) continue;
+      const p=p0.replace(/^.*?output\//,''); // output 상위 폴더를 골라도 동작
+      if(LOCAL_ASSETS[p]) URL.revokeObjectURL(LOCAL_ASSETS[p]);
+      LOCAL_ASSETS[p]=URL.createObjectURL(f); n++;
+    }
+    for(const k in jumboLogoCache) delete jumboLogoCache[k];
+    if(G.phase!=='menu'){ renderRosters(); updateBatterCard(); refreshHUD(); }
+    setMsg(`📁 로컬 이미지 ${n}개 연결됨 — 내 화면에만 표시`);
+    $('btnAssets').textContent='🖼️';
+  }catch(e){ /* 폴더 선택 취소 */ }
+}
 function teamLogo(t,cls,emblem){ // 로고 img — logos_hd/{code}.png(수동 고해상도) 우선, 없으면 공식 저해상도
   if(!t||!G.kbo) return '';
-  const low=t.logo?G.kbo.base+(emblem?t.logo.replace('initial_','emblem_'):t.logo):'';
-  const hd=G.kbo.base+'logos_hd/'+t.code+'.png';
+  const low=t.logo?AST(emblem?t.logo.replace('initial_','emblem_'):t.logo):'';
+  const hd=AST('logos_hd/'+t.code+'.png');
   return `<img class="${cls}" src="${hd}" `+
     `onerror="if(this.dataset.f||!'${low}'){this.style.display='none';}else{this.dataset.f=1;this.src='${low}';}">`;
 }
@@ -976,7 +1011,7 @@ function toPrePitch(){
   G.batHold=false; G.buntStance=false;
   G.playerBatting=G.top;
   G.swapOutSide=G.batSide; // 퇴장 연출은 "직전 타자"의 타석 기준 (순간이동 방지)
-  G.stealLive=null; G.stealThrow=null;
+  G.stealLive=null; G.stealThrow=null; G.stealFrom=-1;
   // CPU 투수 자동 교체 (투구수 100+ 시 불펜 투입)
   if(G.top&&G.kbo&&G.pitchCount&&G.pitchCount.cpu>100&&G.bullpen&&G.bullpen.cpu.length){
     G.pitcherIdx.cpu=G.bullpen.cpu.shift(); G.pitchCount.cpu=0; renderRosters();
@@ -1002,7 +1037,7 @@ function toPrePitch(){
   batterModel.visible=true;
   batterModel.traverse(o=>{if(o.material)o.material=o.material;});
   // 타자 색: 플레이어=노랑, CPU=빨강
-  batterModel.parts.torso.material=mat(G.playerBatting?0xd6b93a:0xc25b5b);
+  batterModel.parts.torso.material=mat(0xd6b93a); // 공격팀 유니폼은 항상 노란색(빨간 옷 금지)
   setBatterStance();
   setMsg(G.playerBatting?'CPU 투수 준비 중… ←→↑↓ 이동, 마우스 조준, 클릭=풀스윙!'
                         :'마우스로 조준 → 누르면 힘 게이지, 드래그=변화구, 떼면 투구');
@@ -1024,7 +1059,7 @@ function toPrePitch(){
 }
 function startBatterSwap(){ // 아웃된 타자는 더그아웃으로, 새 타자가 걸어 들어온다
   const d=G.top?-1:1; // 어웨이(선공)=1루측(-x), 홈=3루측(+x) 더그아웃
-  const out=getRunner(G.top?0xd6b93a:0xc25b5b);
+  const out=getRunner(0xd6b93a);
   out.model.position.set(1.05*(G.swapOutSide||G.batSide),0,0); // 직전 타자의 타석에서 퇴장
   G.swapAnim={out:{r:out,to:V3(10*d,0,-6)},outDone:false};
   batterModel.position.set(8*d*G.batSide,0,-5); // 로컬 좌표(미러 보정)
@@ -1201,7 +1236,7 @@ function startWalkAnim(quick){ // 데드볼/볼넷: 타자와 강제 주자들�
   if(G.runners[2]&&b[0]&&b[1]) G.runners[2].anim={path:[HOMEP.clone()],speed:6,seg:0};
   if(G.runners[1]&&b[0]) G.runners[1].anim={path:[BASES[2].clone()],speed:6,seg:0};
   if(G.runners[0]) G.runners[0].anim={path:[BASES[1].clone()],speed:6,seg:0};
-  const br=getRunner(G.top?0xd6b93a:0xc25b5b);
+  const br=getRunner(0xd6b93a);
   br.model.position.set(1.05*G.batSide,0,0);
   br.anim={path:[BASES[0].clone()],speed:6,seg:0};
   G.batterRunner=br; batterModel.visible=false;
@@ -1255,6 +1290,7 @@ function resolveContact(fin,swing){
     if(G.strikes<2)G.strikes++; refreshHUD();
     showBanner('파울!',toPrePitch,0.9); return;
   }
+  G.stealFrom=G.stealLive?G.stealLive.b:-1; // 뜬공 포구 시 귀루 레이스(더블오프)용
   G.stealLive=null; // 인플레이 → 도루는 일반 주루로 흡수
   startPlay(judgePlay(deg,launch,exitV),fin);
 }
@@ -1337,7 +1373,7 @@ function syncRunnerMeshes(){
   G.runners.forEach(r=>{if(r){r.inUse=false;r.model.visible=false;}});
   G.runners=[null,null,null]; G.runnerAnims=[];
   G.bases.forEach((occ,i)=>{ if(occ){
-    const r=getRunner(G.top?0xd6b93a:0xc25b5b);
+    const r=getRunner(0xd6b93a);
     r.model.position.copy(BASES[i]); r.model.lookAt(i<2?BASES[Math.min(i+1,2)]:HOMEP);
     G.runners[i]=r; }});
 }
@@ -1350,7 +1386,7 @@ function startRunners(pl){
   if(pl.hitPlay){ // 안타: 모두 달리기 시작, 각 베이스에서 공 위치 보고 추가 진루 판단
     const ents=[];
     for(let i=2;i>=0;i--){ if(G.runners[i]) ents.push({w:G.runners[i],tgt:i+1,state:'run',heldAt:i,isBatter:false}); }
-    const hbr=getRunner(G.top?0xd6b93a:0xc25b5b);
+    const hbr=getRunner(0xd6b93a);
     hbr.model.position.set(1.05*G.batSide,0,0);
     ents.push({w:hbr,tgt:0,state:'run',heldAt:-1,isBatter:true});
     G.batterRunner=hbr; batterModel.visible=false;
@@ -1363,7 +1399,7 @@ function startRunners(pl){
     if(G.runners[2]&&fH) G.runners[2].anim={path:[HOMEP.clone()],speed:gspd,seg:0};
     if(G.runners[1]&&f3) G.runners[1].anim={path:[BASES[2].clone()],speed:gspd,seg:0};
     if(G.runners[0]&&f2) G.runners[0].anim={path:[BASES[1].clone()],speed:gspd,seg:0};
-    const gbr=getRunner(G.top?0xd6b93a:0xc25b5b);
+    const gbr=getRunner(0xd6b93a);
     gbr.model.position.set(1.05*G.batSide,0,0);
     gbr.anim={path:[BASES[0].clone()],speed:gspd,seg:0};
     G.batterRunner=gbr; batterModel.visible=false;
@@ -1378,7 +1414,7 @@ function startRunners(pl){
     if(r.anim.path.length===0)r.anim=null;
   }}
   // 타자 주자
-  const br=getRunner(G.top?0xd6b93a:0xc25b5b);
+  const br=getRunner(0xd6b93a);
   br.model.position.set(1.05*G.batSide,0,0);
   br.anim={path:pathFrom(-1,adv),speed:spd,seg:0,t:0};
   G.batterRunner=br;
@@ -1455,7 +1491,10 @@ function updatePlay(dt){
       if(ballSim.pos.y>3){ if(!ctl.hrDone&&pl.basesHit===4){ // 담장 통과 → 즉시 홈런 처리
         ctl.hrDone=true;ctl.state='hr';ctl.hrNow=true;ctl.resolveTimer=0.45;} }
       else { const n=V3(ballSim.pos.x,0,ballSim.pos.z).normalize();
-        const vn=n.dot(ballSim.vel); ballSim.vel.addScaledVector(n,-1.7*vn); ballSim.vel.multiplyScalar(0.4); }
+        const vn=n.dot(ballSim.vel);
+        if(vn>0){ ballSim.vel.addScaledVector(n,-1.7*vn); // 바깥으로 향할 때 1회만 반사
+          ballSim.vel.x*=0.55; ballSim.vel.z*=0.55; }     // 수평만 감쇠(낙하는 자연스럽게)
+        ballSim.pos.x=n.x*(pl.fence-0.2); ballSim.pos.z=n.z*(pl.fence-0.2); }
     }
     const gh=groundH(ballSim.pos.x,ballSim.pos.z)+0.11; // 마운드 컬리전 포함 지면 높이
     if(ballSim.pos.y<gh){ ballSim.pos.y=gh;
@@ -1507,7 +1546,16 @@ function updatePlay(dt){
           resp.model.rotation.x=-1.05; resp.model.position.y=0.12; resp.slideT=0.9;
           ball.position.set(resp.model.position.x,0.5,resp.model.position.z+0.8);
         } else ball.position.copy(resp.model.position).setY(1.3);
-        ctl.state='caught'; ctl.resolveTimer=0.9; G.camMode='wide';
+        // 도루 스타트했던 주자가 있으면 원래 베이스로 귀루 송구 (더블오프 레이스)
+        if(G.stealFrom>=0&&G.runners[G.stealFrom]&&G.outs+pl.outs<3){
+          const db=G.stealFrom, dr=G.runners[db];
+          dr.anim=null;
+          ctl.dbl={b:db,r:dr,tb:BASES[db].clone(),
+            thrown:{from:ball.position.clone().setY(1.3),to:BASES[db].clone().setY(1.0),t:0,
+              dur:0.25+ball.position.distanceTo(BASES[db])/26}};
+          ctl.state='dblOff'; sfx('whoosh'); showCall('귀루 송구!','#ffd166');
+        } else { ctl.state='caught'; ctl.resolveTimer=0.9; }
+        G.stealFrom=-1; G.camMode='wide';
       }
     } else if(pl.ground){ // 땅볼: 포구 → 포스 베이스로 송구, 주자와 실제 레이스
       if(resp&&resp.model.position.distanceTo(ballSim.pos)<1.1&&ballSim.pos.y<0.7){
@@ -1539,6 +1587,23 @@ function updatePlay(dt){
         startHitThrow(ctl,ball.position.clone().setY(1.2),stIdx);
         resp.model.lookAt(ctl.thrown.to);
       } else if(ctl.t>12&&!ctl.fieldingDone){ ctl.fieldingDone=true; G.camMode='wide'; }
+    }
+  } else if(ctl.state==='dblOff'){ // 뜬공 포구 → 도루 주자 귀루 vs 송구 레이스
+    const d=ctl.dbl, th=d.thrown; th.t+=dt;
+    const k=Math.min(1,th.t/th.dur);
+    ball.position.lerpVectors(th.from,th.to,k);
+    ball.position.y+=Math.sin(Math.PI*k)*1.4;
+    const p=d.r.model.position, dir=V3(d.tb.x-p.x,0,d.tb.z-p.z), distR=dir.length();
+    if(distR>0.15){ dir.normalize(); p.addScaledVector(dir,8.6*dt); d.r.model.lookAt(p.clone().add(dir)); }
+    if(k>=1){
+      const safe=d.r.model.position.distanceTo(d.tb)<=0.5;
+      if(safe){ d.r.model.position.copy(d.tb); showCall('귀루 세이프!','#7ed957'); sfx('safe'); }
+      else{ // 더블오프! 원래 베이스에서 아웃
+        pl.outs+=1; pl.outcome+=' → 귀루 실패, 더블 플레이!';
+        G.bases[d.b]=false; d.r.inUse=false; d.r.model.visible=false; G.runners[d.b]=null;
+        showCall('더블 오프! 아웃!','#ff6b6b'); sfx('out');
+      }
+      ctl.state='caught'; ctl.resolveTimer=0.9;
     }
   } else if(ctl.state==='throw'&&ctl.thrown){
     const th=ctl.thrown; th.t+=dt;
@@ -1836,6 +1901,7 @@ addEventListener('keydown',e=>{
 });
 addEventListener('keyup',e=>{const k=KEYMAP[e.key]||e.key; G.keys[k]=false;});
 $('btnStart').onclick=startGame;
+$('btnAssets').onclick=pickAssets;
 $('btnNight').onclick=()=>{
   setNight(!G.night);
   $('btnNight').classList.toggle('on',G.night);
