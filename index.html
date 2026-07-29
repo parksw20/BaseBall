@@ -768,6 +768,14 @@ function curPitcherInfo(){const t=fieldingTeam(); if(!t||!t.pitchers||!t.pitcher
   const idx=G.top?G.pitcherIdx.cpu:G.pitcherIdx.my;
   return t.pitchers[idx%t.pitchers.length];}
 function teamNames(){return {my:G.teamMy?G.teamMy.team:'플레이어', cpu:G.teamCpu?G.teamCpu.team:'CPU'};}
+// 팀 상징색 유니폼 — 공/수 교대 시 그 팀 색으로 갈아입는다 (KBO 데이터 없으면 노랑/파랑)
+const TEAM_COLORS={NC:0x315288,LG:0xc30452,OB:0x1a1748,SS:0x0066b3,KT:0x333333,
+                   HT:0xea0029,LT:0x0b2240,HH:0xfc4e00,WO:0x6d1428,SK:0xce0e2d};
+const teamCol=(t,fb)=>t&&t.code&&TEAM_COLORS[t.code]!==undefined?TEAM_COLORS[t.code]:fb;
+const batCol=()=>teamCol(G.top?G.teamMy:G.teamCpu,0xd6b93a);
+const fldCol=()=>teamCol(G.top?G.teamCpu:G.teamMy,0x3a6ea5);
+function dressFielders(){ fielders.forEach(f=>{ if(f.model.parts&&f.model.parts.torso)
+  f.model.parts.torso.material=mat(fldCol()); }); }
 function updateBatterCard(){
   const el=document.getElementById('batterCard');
   if(!G.kbo){el.style.display='none';return;}
@@ -1036,10 +1044,11 @@ function toPrePitch(){
   fielders.forEach(f=>{f.state='idle';f.target=null;f.slideT=0;
     f.model.rotation.set(0,0,0);
     f.model.position.copy(f.home); f.model.position.y=0; f.model.lookAt(V3(0,0,0));}); // 수비 위치 복귀
+  if(G.lastFldCol!==fldCol()){ G.lastFldCol=fldCol(); dressFielders(); } // 공수교대 → 수비팀 유니폼
   batterModel.visible=true;
   batterModel.traverse(o=>{if(o.material)o.material=o.material;});
   // 타자 색: 플레이어=노랑, CPU=빨강
-  batterModel.parts.torso.material=mat(0xd6b93a); // 공격팀 유니폼은 항상 노란색(빨간 옷 금지)
+  batterModel.parts.torso.material=mat(batCol()); // 공격팀 상징색 유니폼
   setBatterStance();
   setMsg(G.playerBatting?'CPU 투수 준비 중… ←→↑↓ 이동, 마우스 조준, 클릭=풀스윙!'
                         :'마우스로 조준 → 누르면 힘 게이지, 드래그=변화구, 떼면 투구');
@@ -1061,7 +1070,7 @@ function toPrePitch(){
 }
 function startBatterSwap(){ // 아웃된 타자는 더그아웃으로, 새 타자가 걸어 들어온다
   const d=G.top?-1:1; // 어웨이(선공)=1루측(-x), 홈=3루측(+x) 더그아웃
-  const out=getRunner(0xd6b93a);
+  const out=getRunner(batCol());
   out.model.position.set(1.05*(G.swapOutSide||G.batSide),0,0); // 직전 타자의 타석에서 퇴장
   G.swapAnim={out:{r:out,to:V3(10*d,0,-6)},outDone:false};
   batterModel.position.set(8*d*G.batSide,0,-5); // 로컬 좌표(미러 보정)
@@ -1240,7 +1249,7 @@ function startWalkAnim(quick){ // 데드볼/볼넷: 타자와 강제 주자들�
   if(G.runners[2]&&b[0]&&b[1]) G.runners[2].anim={path:[HOMEP.clone()],speed:6,seg:0};
   if(G.runners[1]&&b[0]) G.runners[1].anim={path:[BASES[2].clone()],speed:6,seg:0};
   if(G.runners[0]) G.runners[0].anim={path:[BASES[1].clone()],speed:6,seg:0};
-  const br=getRunner(0xd6b93a);
+  const br=getRunner(batCol());
   br.model.position.set(1.05*G.batSide,0,0);
   br.anim={path:[BASES[0].clone()],speed:6,seg:0};
   G.batterRunner=br; batterModel.visible=false;
@@ -1379,7 +1388,8 @@ function startPlay(pl,contact){
     else if(f.label==='3B'){ f.state='cover'; f.target=BASES[2].clone(); }
     else if(f.label==='SS'){ f.state='cover';
       f.target=chaserLabel==='2B'?BASES[1].clone():BASES[1].clone().lerp(BASES[2],0.5); }
-    else if(f.label==='P'){ f.state='cover'; f.target=V3(0,0,2.2); } // 홈 백업
+    else if(f.label==='P'){ f.state='cover'; // 담당 야수가 비운 베이스를 투수가 즉시 커버 (번트 1루 등)
+      f.target=chaserLabel==='1B'?BASES[0].clone():chaserLabel==='3B'?BASES[2].clone():V3(0,0,2.2); }
     else if(f.label==='C'){ f.state='idle'; }
     else { // 외야수: 타구 라인(코리도) 안이면 전원 즉시 라인으로 — 깊은 쪽 백업이 미리 출발
       const dAng=Math.abs(f.def[0]-pl.deg);
@@ -1399,7 +1409,7 @@ function syncRunnerMeshes(){
   G.runners.forEach(r=>{if(r){r.inUse=false;r.model.visible=false;}});
   G.runners=[null,null,null]; G.runnerAnims=[];
   G.bases.forEach((occ,i)=>{ if(occ){
-    const r=getRunner(0xd6b93a);
+    const r=getRunner(batCol());
     r.model.position.copy(BASES[i]); r.model.lookAt(i<2?BASES[Math.min(i+1,2)]:HOMEP);
     G.runners[i]=r; }});
 }
@@ -1414,7 +1424,7 @@ function startRunners(pl){
     for(let i=2;i>=0;i--){ if(G.runners[i]){
       G.runners[i].model.position.lerpVectors(BASES[i],STATIONS[i+1],0.08); // 리드: 미리 다음 베이스쪽
       ents.push({w:G.runners[i],tgt:i+1,state:'run',heldAt:i,isBatter:false}); }}
-    const hbr=getRunner(0xd6b93a);
+    const hbr=getRunner(batCol());
     hbr.model.position.set(1.05*G.batSide,0,0);
     ents.push({w:hbr,tgt:0,state:'run',heldAt:-1,isBatter:true,delay:0.3}); // 배팅 후 출발이라 늦다
     G.batterRunner=hbr; batterModel.visible=false;
@@ -1428,7 +1438,7 @@ function startRunners(pl){
     if(G.runners[2]&&fH){ lead(2,HOMEP); G.runners[2].anim={path:[HOMEP.clone()],speed:gspd,seg:0}; }
     if(G.runners[1]&&f3){ lead(1,BASES[2]); G.runners[1].anim={path:[BASES[2].clone()],speed:gspd,seg:0}; }
     if(G.runners[0]&&f2){ lead(0,BASES[1]); G.runners[0].anim={path:[BASES[1].clone()],speed:gspd,seg:0}; }
-    const gbr=getRunner(0xd6b93a);
+    const gbr=getRunner(batCol());
     gbr.model.position.set(1.05*G.batSide,0,0);
     gbr.anim={path:[BASES[0].clone()],speed:gspd,seg:0,delay:0.3}; // 배팅 후 출발이라 늦다
     G.batterRunner=gbr; batterModel.visible=false;
@@ -1444,7 +1454,7 @@ function startRunners(pl){
     else r.model.position.lerpVectors(BASES[i],r.anim.path[0],0.08); // 리드
   }}
   // 타자 주자
-  const br=getRunner(0xd6b93a);
+  const br=getRunner(batCol());
   br.model.position.set(1.05*G.batSide,0,0);
   br.anim={path:pathFrom(-1,adv),speed:spd,seg:0,t:0,delay:0.3};
   G.batterRunner=br;
