@@ -1012,7 +1012,11 @@ function startGame(){
   $('menu').style.display='none';
   Object.assign(G,{inning:1,top:true,outs:0,balls:0,strikes:0,bases:[false,false,false],
     score:[[],[]],playerBatting:true,batOff:{x:0,y:0}});
-  ensureCell(); syncRunnerMeshes(); toPrePitch();
+  ensureCell(); syncRunnerMeshes();
+  toPrePitch();
+  G.camMode='bat'; // 이닝 전환과 동일하게: 타석 시점에서 "1회 초" 배너 후 시작
+  refreshHUD();
+  showBanner(`${G.inning}회 초`,toPrePitch,1.5);
 }
 function toPrePitch(){
   hideBanner();
