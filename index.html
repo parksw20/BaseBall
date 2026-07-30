@@ -2,10 +2,23 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>BaseBall 3D — 게이지 야구</title>
 <style>
-  html,body{margin:0;padding:0;background:#0d1117;overflow:hidden;font-family:'Malgun Gothic',sans-serif;}
-  #cv3d{display:block;cursor:crosshair;}
+  html,body{margin:0;padding:0;background:#0d1117;overflow:hidden;font-family:'Malgun Gothic',sans-serif;
+    touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent;}
+  #cv3d{display:block;cursor:crosshair;touch-action:none;}
+  /* 터치 기기(아이패드 등): 키보드가 없으니 타자 이동용 화면 패드 */
+  #dpad{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:8;display:none;
+    grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,46px);gap:5px;}
+  body.touch #msg{bottom:172px;} /* D패드와 겹치지 않게 */
+  #dpad button{pointer-events:auto;background:rgba(24,42,62,.78);color:#dfe9f2;font-size:19px;
+    border:1px solid #4a6a8a;border-radius:10px;touch-action:none;}
+  #dpad button:active{background:#2a5a8a;}
+  #dpad .sp{visibility:hidden;}
+  body.touch #dpad{display:grid;}
   .hudbox{position:fixed;color:#fff;z-index:5;user-select:none;pointer-events:none;}
   #scoreboard{top:0;left:0;right:0;height:40px;background:rgba(8,12,18,.82);
     display:flex;align-items:center;gap:26px;padding:0 16px;font-size:15px;}
@@ -44,6 +57,9 @@
   .roster{width:190px;background:rgba(8,14,20,.62);border-radius:10px;padding:9px;
     font-size:15px;color:#dfe9f2;display:none;}
   #rosterL{left:8px;top:52px;} #rosterR{right:8px;top:52px;}
+  /* 화면이 낮으면(아이패드 가로 등) 로스터가 하단 카드와 겹치지 않게 스크롤 */
+  @media (max-height:900px){ .roster{bottom:270px;overflow-y:auto;
+    pointer-events:auto;-webkit-overflow-scrolling:touch;} }
   .roster h4{margin:1px 0 6px;font-size:17px;color:#9fd6ff;pointer-events:auto;cursor:pointer;}
   .roster.closed .r,.roster.closed .sec{display:none;}
   .roster .r{display:flex;align-items:center;gap:7px;padding:2px 4px;border-radius:5px;}
@@ -106,6 +122,11 @@
   <button id="btnNight" title="야간 경기">🌙</button>
   <button id="btnAssets" title="내 PC의 선수 사진·로고 연결 (KBO_DB_Builder/output 폴더 선택 — 내 화면에만 표시)">📁</button>
   <button id="btnPause" title="일시정지/재개">⏸</button>
+</div>
+<div id="dpad">
+  <button class="sp"></button><button data-dk="ArrowUp">▲</button><button class="sp"></button>
+  <button data-dk="ArrowLeft">◀</button><button class="sp"></button><button data-dk="ArrowRight">▶</button>
+  <button class="sp"></button><button data-dk="ArrowDown">▼</button><button class="sp"></button>
 </div>
 <div id="gaugeWrap" class="hudbox"><div id="gaugeBar"></div></div>
 <div id="msg" class="hudbox"></div>
@@ -1210,7 +1231,7 @@ function pitchArrives(){
   else{
     // 데드볼: 스윙 없이 공이 타자 몸 쪽으로 오면 출루
     const bx=batterModel.position.x*G.batSide; // 미러 반영한 월드 x
-    if(Math.abs(fin.x-bx)<0.42&&fin.y>0.1&&fin.y<1.75){
+    if(Math.abs(fin.x-bx)<0.20&&fin.y>0.2&&fin.y<1.6){ // 몸통 폭만 피격(그 밖의 몸쪽 공은 볼)
       G.stealLive=null; // 데드볼 → 도루 취소(강제 진루로 처리)
       sfx('mitt');
       triggerHbpFx(V3(fin.x,fin.y,0)); // 피격 이펙트
@@ -1887,25 +1908,27 @@ function screenToZone(sx,sy){
   raycaster.ray.intersectPlane(planeZ0,p);
   return p;
 }
-addEventListener('mousemove',e=>{
-  G.mouseScreen={x:e.clientX,y:e.clientY};
+function applyAim(cx,cy){ // 마우스 이동·터치 지점 → 조준(타자 배트 / 투수 목표·커브)
+  G.mouseScreen={x:cx,y:cy};
   if(G.phase==='menu')return;
-  const p=screenToZone(e.clientX,e.clientY);
+  const p=screenToZone(cx,cy);
   if(!p)return;
   if(G.playerBatting){
     G.batPos.x=clamp(p.x,HIT.x0+G.batOff.x,HIT.x1+G.batOff.x);
     G.batPos.y=clamp(p.y,HIT.y0+G.batOff.y,HIT.y1+G.batOff.y);
   } else if(G.charging){
-    G.dragPlane={x:clamp(p.x,-2.2,2.2),y:clamp(p.y,0.05,2.4)}; // 커브 라인은 마우스를 따라간다
+    G.dragPlane={x:clamp(p.x,-2.2,2.2),y:clamp(p.y,0.05,2.4)}; // 커브 라인은 포인터를 따라간다
   } else {
     G.aimPlane.x=clamp(p.x,ZONE.x0-0.5,ZONE.x1+0.5);
     G.aimPlane.y=clamp(p.y,ZONE.y0-0.45,ZONE.y1+0.45);
   }
-});
-addEventListener('mousedown',e=>{
+}
+addEventListener('pointermove',e=>applyAim(e.clientX,e.clientY));
+addEventListener('pointerdown',e=>{
   if(e.target.closest&&e.target.closest('button,.roster,#menu'))return; // UI 클릭(버튼·로스터·메뉴)은 게임 입력 아님
   if(G.phase==='gameOver'){location.reload();return;}
   if(G.phase==='menu'||G.paused)return;
+  applyAim(e.clientX,e.clientY); // 터치는 hover가 없다 → 누른 지점을 즉시 조준점으로
   if(!G.playerBatting&&G.phase==='prePitch'&&!G.swapAnim){ // 투구 차지 (타자 교대 중 금지)
     G.charging=true;G.chargeT=0;G.downScreen={x:e.clientX,y:e.clientY};
     G.downAim={...G.aimPlane}; G.dragPlane={...G.aimPlane};
@@ -1944,7 +1967,7 @@ function releaseBat(){
     G.swingAnimT=0; G.swingAt={...G.batPos}; sfx('whoosh'); // 빈 스윙
   }
 }
-addEventListener('mouseup',()=>{
+const onPointerUp=()=>{
   if(G.paused)return;
   releaseBat();
   if(G.charging){
@@ -1953,7 +1976,10 @@ addEventListener('mouseup',()=>{
     throwPitch(power,G.downAim.x,G.downAim.y,
       G.dragPlane.x-G.downAim.x,G.dragPlane.y-G.downAim.y);
   }
-});
+};
+addEventListener('pointerup',onPointerUp);
+addEventListener('pointercancel',onPointerUp); // 터치가 시스템 제스처로 취소돼도 스윙/투구는 마무리
+addEventListener('touchmove',e=>{ if(e.cancelable)e.preventDefault(); },{passive:false}); // iOS 스크롤·당겨서 새로고침 차단
 const KEYMAP={w:'ArrowUp',a:'ArrowLeft',s:'ArrowDown',d:'ArrowRight',
               W:'ArrowUp',A:'ArrowLeft',S:'ArrowDown',D:'ArrowRight',
               ㅈ:'ArrowUp',ㅁ:'ArrowLeft',ㄴ:'ArrowDown',ㅇ:'ArrowRight'}; // 한글 자판 대응
@@ -1962,6 +1988,17 @@ addEventListener('keydown',e=>{
   if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(k)){G.keys[k]=true;e.preventDefault();}
 });
 addEventListener('keyup',e=>{const k=KEYMAP[e.key]||e.key; G.keys[k]=false;});
+// 화면 D패드로 타자 이동 (표시는 터치 기기에서만 — 아이패드는 키보드가 없다)
+if(navigator.maxTouchPoints>0||('ontouchstart' in window)) document.body.classList.add('touch');
+$('dpad').querySelectorAll('[data-dk]').forEach(b=>{
+  const k=b.dataset.dk;
+  const on=e=>{e.preventDefault();G.keys[k]=true;};
+  const off=()=>{G.keys[k]=false;};
+  b.addEventListener('pointerdown',on);
+  b.addEventListener('pointerup',off);
+  b.addEventListener('pointerleave',off);
+  b.addEventListener('pointercancel',off);
+});
 $('btnStart').onclick=startGame;
 $('btnAssets').onclick=pickAssets;
 $('btnPause').onclick=()=>{
@@ -2094,10 +2131,15 @@ function update(dt){
       const tx=inZ?rand(ZONE.x0+0.06,ZONE.x1-0.06):rand(ZONE.x0-0.18*sp,ZONE.x1+0.18*sp);
       const ty=inZ?rand(ZONE.y0+0.08,ZONE.y1-0.08):rand(ZONE.y0-0.15*sp,ZONE.y1+0.15*sp);
       const cs=pinfo?0.55+pinfo.BreakingBall*0.006:1; // 변화구 능력치 → CPU 커브 크기
+      let cx=rand(-0.9,0.9)*cs, cy=rand(-0.55,0.55)*cs;
+      // 타자 몸쪽으로 크게 흘러가는 공은 억제 — 실제 투수도 몸에 맞히려 던지지 않는다(드물게만 허용)
+      const bxw=1.05*G.batSide, SAFE=0.34;
+      if(Math.abs(tx+cx-bxw)<SAFE&&Math.random()>0.04)
+        cx=bxw-Math.sign(bxw)*SAFE-tx;
       if(G.debugCenter) // 디버그: 한가운데 직구만
         throwPitch(0.75,(ZONE.x0+ZONE.x1)/2,(ZONE.y0+ZONE.y1)/2,0,0);
       else
-        throwPitch(rand(0.4,0.95),tx,ty,rand(-0.9,0.9)*cs,rand(-0.55,0.55)*cs);
+        throwPitch(rand(0.4,0.95),tx,ty,cx,cy);
     }
   }
   // 투구 비행
