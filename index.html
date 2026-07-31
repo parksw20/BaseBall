@@ -98,8 +98,9 @@
   #confirmBox button{font-size:15px;padding:6px 22px;border-radius:7px;border:0;cursor:pointer;}
   #confirmBox .yes{background:#2f7bd6;color:#fff;}
   #confirmBox .no{background:#3a4a5a;color:#dfe9f2;}
-  #stealUI{bottom:250px;left:14px;display:none;flex-direction:column;gap:5px;align-items:flex-start;}
-  #stealUI.right{left:auto;right:14px;align-items:flex-end;} /* 타석 반대편(폴백) */
+  /* 도루 버튼: 타석 반대편 화면 중앙 높이 고정 (하단 카드·라인스코어와 겹치지 않게) */
+  #stealUI{top:48%;bottom:auto;left:24px;display:none;flex-direction:column;gap:6px;align-items:flex-start;}
+  #stealUI.right{left:auto;right:24px;align-items:flex-end;}
   #stealUI button{pointer-events:auto;font-size:13px;padding:5px 12px;background:#20364a;
     color:#cfe;border:1px solid #4a6a8a;border-radius:6px;cursor:pointer;}
   #stealUI button.armed{background:#2f7bd6;color:#fff;border-color:#7fb4e8;}
@@ -680,7 +681,7 @@ function setBatterStance(){ // 기본 타격 대기: 리드암이 몸을 가로�
 const nameTags=[];        // {sp, model} — 모델 자식이 아닌 씬 스프라이트(부모 스케일에 찌그러지지 않게)
 const TAG_CANVAS=[256,64];
 const TAG_H=0.0296;       // 화면 높이 비율 (직전 0.037에서 20% 축소)
-function makeNameTag(text,color){
+function makeNameTag(text,color,below){
   const [W,H]=TAG_CANVAS;
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const x=c.getContext('2d');                       // 배경 박스 없음 — 글자 + 그림자만
@@ -693,6 +694,8 @@ function makeNameTag(text,color){
   x.fillStyle=color||'#ffffff'; x.fillText(text,W/2,H/2+2);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),
     transparent:true,depthTest:false,sizeAttenuation:false})); // 거리와 무관하게 항상 같은 크기
+  // 앵커: 수비=글자 아래끝을 기준점에 맞춤(위로 뜸) / 공격=글자 윗끝 기준(아래로 매달림)
+  sp.center=new THREE.Vector2(0.5,below?1:0);
   sp.renderOrder=10; sp.visible=false; scene.add(sp);
   return sp;
 }
@@ -707,7 +710,7 @@ function setNameTag(model,text,below){ // 모델당 1개 유지 — 텍스트가
   if(!model||!text) return;
   if(model.userData.tagText===text&&model.userData.tagBelow===!!below) return;
   clearNameTag(model);
-  const sp=makeNameTag(text,below?RUNNER_TAG:'#ffffff');
+  const sp=makeNameTag(text,below?RUNNER_TAG:'#ffffff',below);
   model.userData.tag=sp; model.userData.tagText=text; model.userData.tagBelow=!!below;
   nameTags.push({sp,model,below:!!below});
 }
@@ -718,8 +721,8 @@ function updateNameTags(){ // 매 프레임: 머리 위 추종 + 화면비 보�
   for(const n of nameTags){
     const vis=show&&n.model.visible;
     n.sp.visible=vis; if(!vis) continue;
-    // 수비=머리 위 / 공격(주자)=발 아래
-    n.sp.position.set(n.model.position.x,n.model.position.y+(n.below?0.02:2.25),n.model.position.z);
+    // 수비=머리 위 / 공격(주자)=발 아래 (앵커가 방향을 보장, 여기선 기준 높이만 지정)
+    n.sp.position.set(n.model.position.x,n.model.position.y+(n.below?0.12:2.1),n.model.position.z);
     n.sp.scale.set(TAG_H*ratio,TAG_H,1);
   }
 }
@@ -1971,25 +1974,26 @@ function updatePlay(dt){
           const runner=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(!runner||!runner.anim) return -99; // 이미 베이스 도달 → 던져봤자 세이프
           const rT=runner.model.position.distanceTo(c.to)/8.6+(runner.anim.delay||0); // 타자 출발 지연 반영
-          const bT=resp.model.position.distanceTo(c.to)<8
-            ? resp.model.position.distanceTo(c.to)/7.5      // 직접 밟기
-            : ball.position.distanceTo(c.to)/34+WINDUP;     // 송구(릴리스 시간 포함, 구속 34m/s)
+          // 직접 뛰어가 밟기 / 송구 중 실제로 더 빠른 쪽 (nextGroundStage의 선택 기준과 동일)
+          const bT=Math.min(resp.model.position.distanceTo(c.to)/7.5,
+                            ball.position.distanceTo(c.to)/34+WINDUP);
           return rT-bT;
         };
         // 병살 가능하면 반드시 2루 먼저 → 1루 릴레이 (아웃 하나만 챙기고 끝내지 않게)
         const c1={to:BASES[0],ev:-1};
         const c2=(G.bases[0]&&G.outs<2)?{to:BASES[1],ev:0}:null;
-        if(c2&&margin(c2)>-0.35) ctl.throwQueue=[c2,c1];
-        else if(c2&&margin(c2)>-90) ctl.throwQueue=[c1,c2];
+        // 2루(선행주자)가 확실히 잡히는 경우에만 병살 시도, 아니면 확실한 1루를 먼저 처리
+        const m2=c2?margin(c2):-99;
+        if(c2&&m2>0.15) ctl.throwQueue=[c2,c1];
         else ctl.throwQueue=[c1];
         for(const c of ctl.throwQueue){ // 접전(0.2초 이내) 감지 → 슬라이딩 + 슬로모션
           const rr=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(rr) rr.slideAt=c.to.clone();
           const m=margin(c);
           if(rr&&m>-90&&Math.abs(m)<CLOSE_CALL){
-            const bT=resp.model.position.distanceTo(c.to)<8
-              ? resp.model.position.distanceTo(c.to)/7.5
-              : ball.position.distanceTo(c.to)/34+WINDUP;   // 판정(공 도착) 예정까지 남은 시간
+            // 뛰어가 밟든 송구하든, 실제로 선택될 더 빠른 쪽까지 남은 시간 기준으로 슬로모 예약
+            const bT=Math.min(resp.model.position.distanceTo(c.to)/7.5,
+                              ball.position.distanceTo(c.to)/34+WINDUP);
             scheduleSlowmo(c.to,bT);
           }
         }
