@@ -505,7 +505,10 @@ const stadium={towers:[],bulbs:[],lights:[]};
     if(A<=45) return fenceR(A)+6;                    // 홈런 지역 끝에서 조금 떨어져
     const par=5.5/Math.sin(A*Math.PI/180-Math.PI/4); // 파울라인 바로 바깥(5.5m) 평행선까지 끌어당김
     let r=Math.min(fenceR(45)+6,Math.max(16,par));   // 16m 아래로는 더그아웃 통로 확보
-    if(A>150) r+=(A-150)/30*5;                       // 포수 뒤쪽은 움푹 들어가게(뒤로)
+    if(A>135){ // 홈 뒤: 백스톱 광고판(반경 12.6m) 바로 뒤에 관중석이 붙도록 좁혀 들어간다
+      const u=Math.min(1,(A-135)/45);
+      r=r*(1-u)+13.2*u;
+    }
     return r;
   };
   const buildBowl=(depth,h0,h1,offset,matSeat)=>{
@@ -525,8 +528,8 @@ const stadium={towers:[],bulbs:[],lights:[]};
     return {depth,h0,h1,offset};
   };
   const bowls=[];
-  bowls.push(buildBowl(26,1.4,10.5,0,seatA));    // 1층 (그라운드 레벨 → 위로)
-  bowls.push(buildBowl(20,12.0,19.5,28,seatB));  // 2층
+  bowls.push(buildBowl(26,1.4,10.5,0,seatA));      // 1층 (그라운드 레벨 → 위로)
+  bowls.push(buildBowl(22,10.5,20.5,26,seatB));    // 2층 — 1층 끝점에서 바로 이어져 틈이 없다
   // 1층 앞 벽(그라운드와 관중석 경계)
   {
     const pos=[],idx=[]; let n=0;
