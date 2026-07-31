@@ -1011,6 +1011,7 @@ const G={
   swingAnimT:-1, cpuBatterSwingT:-1,
   runners:[null,null,null], runnerAnims:[], keys:{},
   camMode:'bat',
+  showNames:true,   // 이름표 기본 켜짐
 };
 window.game=G;
 const totalScore=i=>G.score[i].reduce((a,b)=>a+(b||0),0);
@@ -1315,6 +1316,8 @@ function startGame(){
     score:[[],[]],playerBatting:true,batOff:{x:0,y:0}});
   ensureCell(); syncRunnerMeshes();
   toPrePitch();
+  $('btnNames').classList.toggle('on',G.showNames); // 기본 켜짐 상태를 버튼에도 반영
+  if(G.showNames){ refreshNameTags(); applyNameTagVisibility(); }
   G.camMode='bat'; // 이닝 전환과 동일하게: 타석 시점에서 "1회 초" 배너 후 시작
   refreshHUD();
   showBanner(`${G.inning}회 초`,toPrePitch,1.5);
