@@ -97,7 +97,8 @@
   #confirmBox button{font-size:15px;padding:6px 22px;border-radius:7px;border:0;cursor:pointer;}
   #confirmBox .yes{background:#2f7bd6;color:#fff;}
   #confirmBox .no{background:#3a4a5a;color:#dfe9f2;}
-  #stealUI{bottom:250px;left:14px;display:none;flex-direction:column;gap:5px;}
+  #stealUI{bottom:250px;left:14px;display:none;flex-direction:column;gap:5px;align-items:flex-start;}
+  #stealUI.right{left:auto;right:14px;align-items:flex-end;} /* 타석 반대편에 배치 */
   #stealUI button{pointer-events:auto;font-size:13px;padding:5px 12px;background:#20364a;
     color:#cfe;border:1px solid #4a6a8a;border-radius:6px;cursor:pointer;}
   #stealUI button.armed{background:#2f7bd6;color:#fff;border-color:#7fb4e8;}
@@ -928,15 +929,53 @@ function updateRosterHighlight(){
 }
 function updateStealUI(){ // 도루 작전 버튼 (내 공격 + 앞 베이스 빈 주자)
   const el=document.getElementById('stealUI');
-  if(!G.playerBatting||G.phase!=='prePitch'){el.style.display='none';return;}
+  // 우타자는 화면 오른쪽(3루측), 좌타자는 왼쪽(1루측) — 타자가 서 있는 쪽에 붙인다
+  el.classList.toggle('right',(G.batSide||1)>0);
+  const wild=G.phase==='wild';
+  if(!G.playerBatting||(G.phase!=='prePitch'&&!wild)){el.style.display='none';return;}
   const opts=[];
   if(G.bases[0]&&!G.bases[1])opts.push([0,'2루 도루']);
   if(G.bases[1]&&!G.bases[2])opts.push([1,'3루 도루']);
   if(!opts.length){el.style.display='none';G.stealPlan=null;return;}
-  el.innerHTML=opts.map(([b,label])=>
-    `<button class="${G.stealPlan&&G.stealPlan.b===b?'armed':''}" onclick="toggleSteal(${b})">`+
-    `${G.stealPlan&&G.stealPlan.b===b?'✓ ':''}${label}</button>`).join('');
+  el.innerHTML=opts.map(([b,label])=> wild
+    ? `<button class="armed" onclick="wildAdvance(${b})">⚡ ${label} (지금!)</button>`
+    : `<button class="${G.stealPlan&&G.stealPlan.b===b?'armed':''}" onclick="toggleSteal(${b})">`+
+      `${G.stealPlan&&G.stealPlan.b===b?'✓ ':''}${label}</button>`).join('');
   el.style.display='flex';
+}
+/* ---- 폭투(포수 포구 실패) → 그 자리에서 도루 요청 ---- */
+function startWildWindow(){
+  hideBanner();
+  G.phase='wild'; G.wildT=1.8; G.wildStart=G.clock; G.wildDelay=0; // 이 시간 안에 요청해야 진루 가능
+  G.camMode='wide'; G.camSnap=true;
+  setMsg('⚡ 폭투! 지금 도루를 요청하세요');
+  updateStealUI();
+}
+window.wildAdvance=b=>{ // 폭투 상황에서 한 베이스 진루 — 포수 회수·송구와의 실제 레이스
+  const r=G.runners[b]; if(!r||G.bases[b+1]||G.wildRun) return;
+  sfx('click');
+  const tgt=BASES[b+1];
+  r.model.position.lerpVectors(BASES[b],tgt,0.3);    // 폭투를 보고 이미 스타트
+  r.anim={path:[tgt.clone()],speed:8.6,seg:0};
+  r.slideAt=tgt.clone();
+  // 포수가 백스톱까지 공을 주우러 갔다가 송구하는 시간 — 즉시 요청하면 대개 세이프
+  const eta=G.clock+2.5+rand(0,0.7)-Math.max(0,(G.wildDelay||0))*2;
+  G.wildRun={b,r,eta,tgt};
+  G.wildT=0;
+  document.getElementById('stealUI').style.display='none';
+  setMsg('진루 시도! 포수 송구와 레이스');
+  const rEta=(r.model.position.distanceTo(tgt)-0.5)/8.6;
+  if(Math.abs(rEta-(eta-G.clock))<CLOSE_CALL) enterSlowmo(tgt); // 접전이면 슬로모션
+}
+function finishWild(safe){
+  const w=G.wildRun; G.wildRun=null;
+  if(w){
+    if(safe){ G.bases[w.b+1]=true; G.bases[w.b]=false; showCall('진루 성공!','#7ed957'); }
+    else { showCall('아웃!','#ff6b6b'); G.bases[w.b]=false; recordOut();
+           exitToDugout(w.r.model.position.clone()); w.r.model.visible=false; w.r.anim=null; }
+    syncRunnerMeshes(); refreshHUD();
+  }
+  G.phase='banner'; G.bannerT=0.6; G.afterBanner=()=>{ if(G.outs>=3) switchSides(); else toPrePitch(); };
 }
 window.toggleSteal=b=>{
   sfx('click');
@@ -1334,12 +1373,26 @@ function pitchArrives(){
     sfx('mitt');
     // 볼/스트라이크 콜은 0.5초 유예 — 그 사이 늦게 나간 배트도 "스윙"으로 인정한다
     if(G.playerBatting){ G.judgeT=0.5; G.judgeFin={x:fin.x,y:fin.y,inZ}; }
-    else finishJudge(inZ);
+    else finishJudge({x:fin.x,y:fin.y,inZ});
   }
 }
-function finishJudge(inZ){ // 유예 종료 → 최종 볼/스트라이크 콜
+function finishJudge(fin){ // 유예 종료 → 최종 볼/스트라이크 콜
+  const inZ=fin&&fin.inZ;
   G.judgeT=0; G.judgeFin=null;
-  if(inZ) addStrike('스트라이크!'); else addBall();
+  if(inZ){ addStrike('스트라이크!'); return; }
+  // 크게 빠진 공은 포수가 놓칠 수 있다(폭투) → 주자에게 진루 기회
+  if(fin&&G.playerBatting&&G.balls<3&&G.bases.some((b,i)=>b&&!G.bases[i+1]&&i<2)){
+    const dx=Math.max(0,ZONE.x0-fin.x,fin.x-ZONE.x1);
+    const dy=Math.max(0,ZONE.y0-fin.y,fin.y-ZONE.y1);
+    const miss=Math.hypot(dx,dy);
+    if(miss>0.35&&Math.random()<clamp((miss-0.35)*0.9,0,0.55)){
+      G.balls++; refreshHUD(); sfx('foul');
+      launchFoulBall(180+rand(-30,30),rand(6,18),rand(7,11)); // 공이 포수 뒤로 굴러간다
+      showBanner('폭투! 포수 놓침',startWildWindow,1.0);
+      return;
+    }
+  }
+  addBall();
 }
 function lateSwing(){ // 유예 중 배트가 나감 → 스윙으로 처리(늦었으면 헛스윙)
   const f=G.judgeFin; if(!f) return false;
@@ -1538,7 +1591,7 @@ function syncRunnerMeshes(){
 }
 /* ---- 슬라이딩 & 접전 슬로모션 ---- */
 const CLOSE_CALL=1.0;   // 주자·송구 도착 차이가 이 이내면 "접전"으로 보고 슬로모션
-const SLOW_AFTER=1.0;   // 세이프/아웃 판정이 난 뒤에도 이만큼 더 보여준다 (실시간 초)
+const SLOW_AFTER=2.0;   // 세이프/아웃 판정이 난 뒤에도 이만큼 더 보여준다 (실시간 초)
 function slidePose(w){ if(!w||w.slideT>0) return;
   w.slideT=0.9; w.model.rotation.x=-1.0; w.model.position.y=0.12; }
 function updateSlide(w,dt){ if(!w||!(w.slideT>0)) return;
@@ -2270,7 +2323,20 @@ function update(dt){
   updateExiters(dt); // 아웃된 주자 더그아웃 퇴장 (플레이 종료 후에도 계속 걸어간다)
   for(const r of runnerPool) updateSlide(r,dt); // 슬라이딩 자세 복구 (모든 주자는 풀에서 나온다)
   // 존 판정 유예(늦은 스윙 인정) 타이머
-  if(G.judgeT>0){ G.judgeT-=dt; if(G.judgeT<=0&&G.judgeFin) finishJudge(G.judgeFin.inZ); }
+  if(G.judgeT>0){ G.judgeT-=dt; if(G.judgeT<=0&&G.judgeFin) finishJudge(G.judgeFin); }
+  // 폭투 진루 기회: 요청 대기 → 요청 시 포수 송구와 레이스
+  if(G.phase==='wild'){
+    updateRunners(dt);
+    if(G.wildRun){
+      const w=G.wildRun;
+      if(!w.r.anim) finishWild(true);                 // 송구 도착 전에 베이스 도달
+      else if(G.clock>=w.eta) finishWild(false);      // 송구가 먼저 도착
+    } else {
+      G.wildT-=dt; G.wildDelay=(G.wildDelay||0)+dt*0.5; // 늦게 요청할수록 불리
+      if(G.wildT<=0){ document.getElementById('stealUI').style.display='none';
+        G.phase='banner'; G.bannerT=0.2; G.afterBanner=toPrePitch; }
+    }
+  }
   // 실시간 판정 콜 타이머
   if(G.callT>0){ G.callT-=dt; if(G.callT<=0)$('call').style.display='none'; }
   if(G.scoreFlashT>0){ G.scoreFlashT-=dt; if(G.scoreFlashT<=0)$('scoreFlash').style.display='none'; }
