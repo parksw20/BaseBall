@@ -1145,6 +1145,7 @@ function toPrePitch(){
   setMsg(G.playerBatting?'CPU 투수 준비 중… ←→↑↓ 이동, 마우스 조준, 클릭=풀스윙!'
                         :'마우스로 조준 → 누르면 힘 게이지, 드래그=변화구, 떼면 투구');
   if(G.pendingSwap){ G.pendingSwap=false; startBatterSwap(); }
+  releaseStrayRunners(); // 이전 플레이의 주자 잔상 정리
   // 포수는 항상 등장 (웅크린 높이가 존 시선 아래라 타격 시야를 가리지 않음)
   const cf=fielders.find(f=>f.label==='C');
   if(cf) cf.model.visible=true;
@@ -1161,7 +1162,19 @@ function toPrePitch(){
   }
   refreshHUD();
 }
+function clearSwapAnim(){ // 교대 연출 폐기 시 풀 주자를 반드시 반환 (안 하면 타석에 잔상으로 남는다)
+  const A=G.swapAnim;
+  if(A&&A.out&&A.out.r){ A.out.r.inUse=false; A.out.r.model.visible=false; }
+  G.swapAnim=null;
+}
+function releaseStrayRunners(){ // 어디에도 속하지 않은 채 보이는 주자 회수 (잔상 안전망)
+  const live=new Set([G.batterRunner,...G.runners,...exiters.map(e=>e.w)].filter(Boolean));
+  if(G.swapAnim&&G.swapAnim.out) live.add(G.swapAnim.out.r);
+  runnerPool.forEach(r=>{ if(!live.has(r)&&(r.inUse||r.model.visible)){
+    r.inUse=false; r.model.visible=false; r.anim=null; } });
+}
 function startBatterSwap(){ // 아웃된 타자는 더그아웃으로, 새 타자가 걸어 들어온다
+  clearSwapAnim();    // 이전 교대가 끝나기 전에 새 교대가 시작되는 경우
   const d=G.top?-1:1; // 어웨이(선공)=1루측(-x), 홈=3루측(+x) 더그아웃
   const out=getRunner(batCol());
   out.model.position.set(1.05*(G.swapOutSide||G.batSide),0,0); // 직전 타자의 타석에서 퇴장
@@ -1177,7 +1190,7 @@ function recordOut(n=1){G.outs=Math.min(3,G.outs+n);}
 function nextAfterPitch(){ if(G.outs>=3){switchSides();} else toPrePitch(); }
 function switchSides(){
   G.outs=0; G.bases=[false,false,false]; newBatter(false); syncRunnerMeshes();
-  G.pendingSwap=false; G.swapAnim=null; // 공수교대는 전원 교체라 개별 교대 연출 생략
+  G.pendingSwap=false; clearSwapAnim(); // 공수교대는 전원 교체라 개별 교대 연출 생략
   const wasTop=G.top, aw=totalScore(0), hm=totalScore(1);
   if(wasTop){
     if(G.inning>=G.innings&&hm>aw) return gameOver();
@@ -1644,7 +1657,9 @@ function evalForce(ctl,ev){ // 공(또는 베이스 밟기)이 도착한 순간 
   const base=ev===-1?BASES[0]:BASES[1];
   const still=runner&&runner.anim&&runner.model.position.distanceTo(base)>0.6;
   if(still){ if(ev===-1)ctl.gr.batterOut=true; else ctl.gr.leadOut=true; runner.anim=null;
-    showCall('아웃!','#ff6b6b'); exitToDugout(runner.model.position.clone()); }
+    showCall('아웃!','#ff6b6b');
+    exitToDugout(runner.model.position.clone());
+    runner.model.visible=false; } // 원본은 즉시 숨김 — 퇴장 주자와 겹쳐 잔상처럼 보이던 문제
   else if(runner) showCall('세이프!','#7ed957');
 }
 function nextGroundStage(ctl,pl,fromPos,carrier){ // 다음 포스: 직접 뛰기 vs 송구 — 더 빠른 쪽 선택
@@ -1748,6 +1763,11 @@ function updatePlay(dt){
           resp.model.rotation.x=-1.05; resp.model.position.y=0.12; resp.slideT=0.9;
           ball.position.set(resp.model.position.x,0.5,resp.model.position.z+0.8);
         } else ball.position.copy(resp.model.position).setY(1.3);
+        // 뜬공 아웃 확정 → 타자 주자는 즉시 더그아웃으로
+        if(pl.outs>0&&G.batterRunner){
+          exitToDugout(G.batterRunner.model.position.clone());
+          G.batterRunner.anim=null; G.batterRunner.model.visible=false;
+        }
         // 도루 스타트했던 주자가 있으면 원래 베이스로 귀루 송구 (더블오프 레이스)
         if(G.stealFrom>=0&&G.runners[G.stealFrom]&&G.outs+pl.outs<3){
           const db=G.stealFrom, dr=G.runners[db];
@@ -1862,6 +1882,7 @@ function updatePlay(dt){
     }
   } else if(ctl.state==='carry'&&ctl.carryTgt){ // 공을 든 수비수가 직접 베이스를 밟으러 뛴다
     const car=ctl.carrier||resp;
+    if(!car){ ctl.state='caught'; ctl.resolveTimer=0.3; return; } // 운반자 유실 → 플레이 정리(멈춤 방지)
     const f=car.model.position, tgt=ctl.carryTgt.to;
     const d=V3(tgt.x-f.x,0,tgt.z-f.z), L=d.length();
     ball.position.set(f.x,1.0,f.z);
@@ -2440,9 +2461,25 @@ function frame(now){
     G.slow.t+=raw; if(G.slow.t>2.0) exitSlowmo();
   }
   const dt=(G.slow&&G.slow.active)?raw*0.25:raw;
-  if(!G.paused) update(dt); // 일시정지: 시뮬레이션만 멈추고 렌더는 유지
-  renderer.render(scene,camera);
-  requestAnimationFrame(frame);
+  try{
+    if(!G.paused) update(dt); // 일시정지: 시뮬레이션만 멈추고 렌더는 유지
+    renderer.render(scene,camera);
+  }catch(e){
+    // 예외가 프레임을 뚫으면 rAF 재등록이 끊겨 게임이 영구 정지한다 → 잡아서 플레이만 리셋하고 계속 돈다
+    console.error('frame error:',e);
+    recoverFromError(e);
+  }
+  requestAnimationFrame(frame); // 어떤 경우에도 루프는 유지
+}
+function recoverFromError(e){
+  G.errCount=(G.errCount||0)+1;
+  setMsg(`⚠ 진행 오류를 복구했습니다 (${(e&&e.message)||e})`);
+  ballSim.active=false; G.playCtl=null; G.pitch=null; G.swing=null;
+  G.foulFly=null; G.stealThrow=null; G.stealLive=null; G.judgeT=0; G.judgeFin=null;
+  exitSlowmo(); hideBanner(); G.afterBanner=null;
+  if(G.batterRunner){G.batterRunner.inUse=false;G.batterRunner.model.visible=false;G.batterRunner=null;}
+  syncRunnerMeshes();
+  if(G.outs>=3) switchSides(); else toPrePitch();
 }
 camera.position.set(0,1.75,-4.4); camera.lookAt(0,1.2,12);
 requestAnimationFrame(frame);
