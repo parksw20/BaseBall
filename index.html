@@ -2021,7 +2021,12 @@ function updatePlay(dt){
       const p=f.model.position,d=V3(tgt.x-p.x,0,tgt.z-p.z),L=d.length();
       if(L>0.4){d.normalize();p.addScaledVector(d,7.5*dt);f.model.lookAt(p.clone().add(d));
         f.model.position.y=Math.abs(Math.sin(performance.now()*0.02))*0.06;}
-      else f.model.position.y=0;
+      else { // 포구 지점 도착 → 공이 날아온 방향(타자 쪽)을 바라보며 대기
+        f.model.position.y=0;
+        const v=ballSim.active?V3(-ballSim.vel.x,0,-ballSim.vel.z):null;
+        if(v&&v.lengthSq()>0.5) f.model.lookAt(p.clone().add(v.normalize()));
+        else f.model.lookAt(V3(0,p.y,0));
+      }
     } else if((f.state==='shift'||f.state==='cover')&&f.target){
       const sp=f.state==='cover'?6.5:4;
       const p=f.model.position,d=V3(f.target.x-p.x,0,f.target.z-p.z);
