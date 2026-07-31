@@ -628,16 +628,23 @@ function makeHumanoid(shirt,pants,skin=0xe8c39e){
     const shoe=add(new THREE.Mesh(new THREE.BoxGeometry(0.16,0.09,0.24),mat(0x2a2a2a,0.8)));
     shoe.position.set(sx*0.1,0.045,0.04);
   }
+  const sleeves=[];
   const mkArm=(sx)=>{ const p=new THREE.Group(); p.position.set(sx*0.27,1.02,0);
     const a=new THREE.Mesh(new THREE.BoxGeometry(0.11,0.46,0.11),mat(shirt));
-    a.castShadow=true; a.position.y=-0.2; p.add(a);
+    a.castShadow=true; a.position.y=-0.2; p.add(a); sleeves.push(a);
     const hand=new THREE.Mesh(new THREE.SphereGeometry(0.055,8,8),mat(skin,0.7));
     hand.position.y=-0.45; p.add(hand);
     g.add(p); return p; };
   const armL=mkArm(-1), armR=mkArm(1);
   armL.rotation.z=0.25; armR.rotation.z=-0.25;
-  g.parts={legL,legR,armL,armR,torso,head,cap,face};
+  // 유니폼 색이 적용되는 부위 전부 (몸통만 바꾸면 모자·소매가 옛 색으로 남는다)
+  g.parts={legL,legR,armL,armR,torso,head,cap,face,shirtParts:[torso,dome,brim,...sleeves]};
   return g;
+}
+function setUniform(model,color){ // 유니폼 색 일괄 적용
+  const ps=model&&model.parts&&model.parts.shirtParts;
+  if(!ps){ if(model&&model.parts&&model.parts.torso) model.parts.torso.material=mat(color); return; }
+  const m=mat(color); ps.forEach(o=>{o.material=m;});
 }
 function attachBat(model){
   // 배트: 노브 + 손잡이 + 배럴 + 팁 (실제 배트 실루엣)
@@ -864,7 +871,7 @@ function getRunner(color){
   if(!r){ const m=makeHumanoid(color,0x555555); scene.add(m);
     r={model:m,inUse:false,anim:null}; runnerPool.push(r); }
   r.inUse=true; r.model.visible=true;
-  if(r.model.parts&&r.model.parts.torso) r.model.parts.torso.material=mat(color); // 풀 재사용 시 유니폼 색 갱신
+  setUniform(r.model,color); // 풀 재사용 시 유니폼 색 갱신(모자·소매 포함)
   r.anim=null; // 풀 재사용 시 이전 플레이의 주루 애니메이션 잔재 제거 (홈런 즉시처리 등으로 미완료였을 수 있음)
   r.slideT=0; r.slideAt=null; r.arrivedAt=undefined; // 슬라이딩/접전 상태도 초기화
   clearNameTag(r.model); // 이전 이름표 제거
@@ -905,8 +912,7 @@ const TEAM_COLORS={NC:0x315288,LG:0xc30452,OB:0x1a1748,SS:0x0066b3,KT:0x333333,
 const teamCol=(t,fb)=>t&&t.code&&TEAM_COLORS[t.code]!==undefined?TEAM_COLORS[t.code]:fb;
 const batCol=()=>teamCol(G.top?G.teamMy:G.teamCpu,0xd6b93a);
 const fldCol=()=>teamCol(G.top?G.teamCpu:G.teamMy,0x3a6ea5);
-function dressFielders(){ fielders.forEach(f=>{ if(f.model.parts&&f.model.parts.torso)
-  f.model.parts.torso.material=mat(fldCol()); }); }
+function dressFielders(){ fielders.forEach(f=>setUniform(f.model,fldCol())); }
 function updateBatterCard(){
   const el=document.getElementById('batterCard');
   if(!G.kbo){el.style.display='none';return;}
@@ -1008,7 +1014,7 @@ window.wildAdvance=b=>{ // 폭투 상황에서 한 베이스 진루 — 포수 �
   document.getElementById('stealUI').style.display='none';
   setMsg('진루 시도! 포수 송구와 레이스');
   const rEta=(r.model.position.distanceTo(tgt)-0.5)/8.6;
-  if(Math.abs(rEta-(eta-G.clock))<CLOSE_CALL) enterSlowmo(tgt); // 접전이면 슬로모션
+  if(Math.abs(rEta-(eta-G.clock))<CLOSE_CALL) scheduleSlowmo(tgt,Math.max(rEta,eta-G.clock)); // 접전
 }
 function finishWild(safe){
   const w=G.wildRun; G.wildRun=null;
@@ -1196,7 +1202,7 @@ function toPrePitch(){
   G.playerBatting=G.top;
   G.swapOutSide=G.batSide; // 퇴장 연출은 "직전 타자"의 타석 기준 (순간이동 방지)
   G.stealLive=null; G.stealThrow=null; G.stealFrom=-1; G.judgeT=0; G.judgeFin=null;
-  G.slowUsed=false; exitSlowmo(); // 접전 슬로모션은 타석마다 1회
+  G.slowUsed=false; G.slowPending=null; exitSlowmo(); // 접전 슬로모션은 타석마다 1회
   // CPU 투수 자동 교체 (투구수 100+ 시 불펜 투입)
   if(G.top&&G.kbo&&G.pitchCount&&G.pitchCount.cpu>100&&G.bullpen&&G.bullpen.cpu.length){
     G.pitcherIdx.cpu=G.bullpen.cpu.shift(); G.pitchCount.cpu=0; renderRosters();
@@ -1223,7 +1229,7 @@ function toPrePitch(){
   batterModel.visible=true;
   batterModel.traverse(o=>{if(o.material)o.material=o.material;});
   // 타자 색: 플레이어=노랑, CPU=빨강
-  batterModel.parts.torso.material=mat(batCol()); // 공격팀 상징색 유니폼
+  setUniform(batterModel,batCol()); // 공격팀 상징색 유니폼 (몸통·모자·소매 전부)
   setBatterStance();
   setMsg(G.playerBatting?'CPU 투수 준비 중… ←→↑↓ 이동, 마우스 조준, 클릭=풀스윙!'
                         :'마우스로 조준 → 누르면 힘 게이지, 드래그=변화구, 떼면 투구');
@@ -1643,6 +1649,12 @@ function syncRunnerMeshes(){
 /* ---- 슬라이딩 & 접전 슬로모션 ---- */
 const CLOSE_CALL=0.3;   // 주자·송구 도착 차이가 이 이내면 "접전"으로 보고 슬로모션
 const SLOW_AFTER=2.0;   // 세이프/아웃 판정이 난 뒤에도 이만큼 더 보여준다 (실시간 초)
+const SLOW_BEFORE=2.0;  // 판정 이 시간 전부터 슬로모션 시작 (게임 시간 초)
+function scheduleSlowmo(basePos,judgeIn){ // 판정 예정 시각 기준으로 진입 시점 예약
+  if(!basePos||G.slowUsed||G.slowPending||(G.slow&&G.slow.active)) return;
+  G.slowUsed=true; // 타석당 1회
+  G.slowPending={base:basePos.clone(),at:(G.clock||0)+Math.max(0,(judgeIn||0)-SLOW_BEFORE)};
+}
 function slidePose(w){ if(!w||w.slideT>0) return;
   w.slideT=0.9; w.model.rotation.x=-1.0; w.model.position.y=0.12; }
 function updateSlide(w,dt){ if(!w||!(w.slideT>0)) return;
@@ -1666,7 +1678,7 @@ function checkCloseCall(basePos,ballEta,runner){
   const rEta=Math.max(0,(runner.model.position.distanceTo(basePos)-0.5)/8.6)
              +((runner.anim&&runner.anim.delay)||0);
   runner.slideAt=basePos.clone();                       // 접전이면 베이스 앞에서 슬라이딩
-  if(Math.abs(rEta-ballEta)<CLOSE_CALL) enterSlowmo(basePos);
+  if(Math.abs(rEta-ballEta)<CLOSE_CALL) scheduleSlowmo(basePos,Math.max(rEta,ballEta));
 }
 /* ---- 아웃된 주자: 자기 팀 더그아웃으로 걸어 나간다 (연출 전용, 판정과 무관) ---- */
 const exiters=[];
@@ -1918,7 +1930,12 @@ function updatePlay(dt){
           const rr=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(rr) rr.slideAt=c.to.clone();
           const m=margin(c);
-          if(rr&&m>-90&&Math.abs(m)<CLOSE_CALL&&!G.slowUsed) enterSlowmo(c.to);
+          if(rr&&m>-90&&Math.abs(m)<CLOSE_CALL){
+            const bT=resp.model.position.distanceTo(c.to)<8
+              ? resp.model.position.distanceTo(c.to)/7.5
+              : ball.position.distanceTo(c.to)/34+WINDUP;   // 판정(공 도착) 예정까지 남은 시간
+            scheduleSlowmo(c.to,bT);
+          }
         }
         ctl.gr={leadOut:false,batterOut:false};
         nextGroundStage(ctl,pl,ball.position.clone(),resp); // 베이스가 가까우면 직접 뛰어가 밟는다
@@ -2390,6 +2407,8 @@ function update(dt){
     ball.position.copy(p);
   }
   G.clock=(G.clock||0)+dt;
+  // 예약된 접전 슬로모션: 판정 SLOW_BEFORE초 전에 진입
+  if(G.slowPending&&G.clock>=G.slowPending.at){ const b=G.slowPending.base; G.slowPending=null; enterSlowmo(b); }
   updateExiters(dt); // 아웃된 주자 더그아웃 퇴장 (플레이 종료 후에도 계속 걸어간다)
   for(const r of runnerPool) updateSlide(r,dt); // 슬라이딩 자세 복구 (모든 주자는 풀에서 나온다)
   // 존 판정 유예(늦은 스윙 인정) 타이머
@@ -2619,7 +2638,7 @@ function recoverFromError(e){
   setMsg(`⚠ 진행 오류를 복구했습니다 (${(e&&e.message)||e})`);
   ballSim.active=false; G.playCtl=null; G.pitch=null; G.swing=null;
   G.foulFly=null; G.stealThrow=null; G.stealLive=null; G.judgeT=0; G.judgeFin=null;
-  exitSlowmo(); hideBanner(); G.afterBanner=null;
+  G.slowPending=null; exitSlowmo(); hideBanner(); G.afterBanner=null;
   if(G.batterRunner){G.batterRunner.inUse=false;G.batterRunner.model.visible=false;G.batterRunner=null;}
   syncRunnerMeshes();
   if(G.outs>=3) switchSides(); else toPrePitch();
