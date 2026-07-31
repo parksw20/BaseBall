@@ -712,12 +712,13 @@ function setNameTag(model,text){ // 모델당 1개 유지 — 텍스트가 바�
 }
 function updateNameTags(){ // 매 프레임: 머리 위 추종 + 화면비 보정 + 시점별 표시
   const show=G.showNames&&G.camMode!=='bat'&&G.camMode!=='pitch'; // 타자/투수 시점에서는 숨김
-  const ar=camera.aspect||1.6, ratio=TAG_CANVAS[0]/TAG_CANVAS[1];
+  // sizeAttenuation:false 스프라이트는 화면 픽셀비 = scale.x/scale.y (화면비 보정 불필요 — 나누면 가로가 눌린다)
+  const ratio=TAG_CANVAS[0]/TAG_CANVAS[1];
   for(const n of nameTags){
     const vis=show&&n.model.visible;
     n.sp.visible=vis; if(!vis) continue;
     n.sp.position.set(n.model.position.x,n.model.position.y+2.25,n.model.position.z);
-    n.sp.scale.set(TAG_H*ratio/ar,TAG_H,1); // 가로세로 비율 유지(찌그러짐 방지)
+    n.sp.scale.set(TAG_H*ratio,TAG_H,1);
   }
 }
 function refreshNameTags(){
