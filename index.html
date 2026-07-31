@@ -15,13 +15,14 @@
     grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,46px);gap:5px;}
   body.touch #msg{bottom:172px;} /* D패드와 겹치지 않게 */
   /* 접전 슬로모션 오버레이 */
-  #slowmo{position:fixed;inset:0;z-index:9;display:none;align-items:flex-start;justify-content:center;
+  #slowmo{position:fixed;inset:0;z-index:9;display:none;align-items:flex-end;justify-content:center;
     pointer-events:none;background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,.45) 100%);}
-  #slowmo .bar{margin-top:12%;display:flex;align-items:center;gap:14px;
+  #slowmo .bar{margin-bottom:56px;display:flex;align-items:center;gap:14px;
     background:rgba(8,14,20,.8);border:1px solid #4a6a8a;border-radius:12px;padding:10px 16px;}
   #slowmo .ttl{color:#ffd76b;font-size:26px;font-weight:bold;text-shadow:0 2px 8px #000;}
   #slowmo button{pointer-events:auto;background:#20364a;color:#fff;border:1px solid #4a6a8a;
     border-radius:8px;padding:6px 14px;font-size:15px;cursor:pointer;}
+  body.touch #slowmo .bar{margin-bottom:180px;} /* 터치 D패드 위로 */
   #dpad button{pointer-events:auto;background:rgba(24,42,62,.78);color:#dfe9f2;font-size:19px;
     border:1px solid #4a6a8a;border-radius:10px;touch-action:none;}
   #dpad button:active{background:#2a5a8a;}
