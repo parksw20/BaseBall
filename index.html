@@ -1216,9 +1216,11 @@ function releaseStrayRunners(){ // 어디에도 속하지 않은 채 보이는 �
 function startBatterSwap(){ // 아웃된 타자는 더그아웃으로, 새 타자가 걸어 들어온다
   clearSwapAnim();    // 이전 교대가 끝나기 전에 새 교대가 시작되는 경우
   const d=G.top?-1:1; // 어웨이(선공)=1루측(-x), 홈=3루측(+x) 더그아웃
-  const out=getRunner(batCol());
-  out.model.position.set(1.05*(G.swapOutSide||G.batSide),0,0); // 직전 타자의 타석에서 퇴장
-  G.swapAnim={out:{r:out,to:V3(10*d,0,-6)},outDone:false};
+  // 이미 주자로 뛰다가 아웃돼 더그아웃으로 걸어가는 중이면 타석 퇴장 연출은 생략 (두 명이 나가 보이던 문제)
+  const skipOut=G.batterExited; G.batterExited=false;
+  const out=skipOut?null:getRunner(batCol());
+  if(out) out.model.position.set(1.05*(G.swapOutSide||G.batSide),0,0); // 직전 타자의 타석에서 퇴장
+  G.swapAnim={out:out?{r:out,to:V3(10*d,0,-6)}:null,outDone:!out};
   batterModel.position.set(8*d*G.batSide,0,-5); // 로컬 좌표(미러 보정)
   G.cpuWindup=Math.max(G.cpuWindup,2.4); // 교대 동안 투구 지연
 }
@@ -1619,8 +1621,9 @@ function checkCloseCall(basePos,ballEta,runner){
 }
 /* ---- 아웃된 주자: 자기 팀 더그아웃으로 걸어 나간다 (연출 전용, 판정과 무관) ---- */
 const exiters=[];
-function exitToDugout(pos){
+function exitToDugout(pos,isBatter){
   if(!pos) return;
+  if(isBatter) G.batterExited=true; // 타자는 이미 나갔다 → 교대 연출에서 또 내보내지 않게
   const d=G.top?-1:1;                       // 어웨이(초)=1루측(-x), 홈(말)=3루측(+x)
   const w=getRunner(batCol());
   w.model.position.copy(pos); w.model.position.y=0;
@@ -1714,7 +1717,7 @@ function evalForce(ctl,ev){ // 공(또는 베이스 밟기)이 도착한 순간 
   const still=runner&&runner.anim&&runner.model.position.distanceTo(base)>0.6;
   if(still){ if(ev===-1)ctl.gr.batterOut=true; else ctl.gr.leadOut=true; runner.anim=null;
     showCall('아웃!','#ff6b6b');
-    exitToDugout(runner.model.position.clone());
+    exitToDugout(runner.model.position.clone(),ev===-1);
     runner.model.visible=false; } // 원본은 즉시 숨김 — 퇴장 주자와 겹쳐 잔상처럼 보이던 문제
   else if(runner) showCall('세이프!','#7ed957');
 }
@@ -1821,7 +1824,7 @@ function updatePlay(dt){
         } else ball.position.copy(resp.model.position).setY(1.3);
         // 뜬공 아웃 확정 → 타자 주자는 즉시 더그아웃으로
         if(pl.outs>0&&G.batterRunner){
-          exitToDugout(G.batterRunner.model.position.clone());
+          exitToDugout(G.batterRunner.model.position.clone(),true);
           G.batterRunner.anim=null; G.batterRunner.model.visible=false;
         }
         // 도루 스타트했던 주자가 있으면 원래 베이스로 귀루 송구 (더블오프 레이스)
@@ -2016,7 +2019,7 @@ function evalHitStationAndContinue(ctl,pl,stIdx,fromPos){
     const vic=hc.ents.find(e=>e.state==='run'&&e.tgt===stIdx&&
       e.w.model.position.distanceTo(STATIONS[stIdx])>0.8);
     if(vic){ vic.state='out'; hc.outs++; showCall('아웃!','#ff6b6b');
-      exitToDugout(vic.w.model.position.clone()); vic.w.model.visible=false; }
+      exitToDugout(vic.w.model.position.clone(),vic.isBatter); vic.w.model.visible=false; }
     else if(hc.ents.some(e=>e.heldAt===stIdx||e.tgt===stIdx)) showCall('세이프!','#7ed957');
     const lead=hc.ents.filter(e=>e.state==='run').sort((a,b)=>b.tgt-a.tgt)[0];
     if(lead){ startHitThrow(ctl,fromPos,lead.tgt); return; }
@@ -2291,8 +2294,8 @@ function update(dt){
   // 타자 교대 연출
   if(G.swapAnim){
     const A=G.swapAnim;
-    const op=A.out.r.model.position, d1=V3(A.out.to.x-op.x,0,A.out.to.z-op.z);
-    if(!A.outDone){
+    if(A.out&&!A.outDone){ // 아웃된 타자가 더그아웃으로 (이미 주자로 퇴장했으면 A.out=null)
+      const op=A.out.r.model.position, d1=V3(A.out.to.x-op.x,0,A.out.to.z-op.z);
       if(d1.length()>0.35){ d1.normalize(); op.addScaledVector(d1,5*dt);
         A.out.r.model.lookAt(op.clone().add(d1));
         op.y=Math.abs(Math.sin(performance.now()*0.02))*0.05; }
@@ -2300,7 +2303,7 @@ function update(dt){
     }
     const bp=batterModel.position, box=V3(1.05,0,0);
     // 퇴장 주자가 타석 근처를 벗어난 뒤에 입장 (겹침 방지)
-    const outNear=!A.outDone&&A.out.r.model.position.distanceTo(V3(1.05*(G.swapOutSide||1),0,0))<2.5;
+    const outNear=!!A.out&&!A.outDone&&A.out.r.model.position.distanceTo(V3(1.05*(G.swapOutSide||1),0,0))<2.5;
     const d2=V3(box.x-bp.x,0,box.z-bp.z);
     if(outNear){ /* 대기 */ }
     else if(d2.length()>0.25){ d2.normalize(); bp.addScaledVector(d2,5*dt);
