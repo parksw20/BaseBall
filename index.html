@@ -1649,7 +1649,7 @@ function syncRunnerMeshes(){
 /* ---- 슬라이딩 & 접전 슬로모션 ---- */
 const CLOSE_CALL=0.3;   // 주자·송구 도착 차이가 이 이내면 "접전"으로 보고 슬로모션
 const SLOW_AFTER=2.0;   // 세이프/아웃 판정이 난 뒤에도 이만큼 더 보여준다 (실시간 초)
-const SLOW_BEFORE=2.0;  // 판정 이 시간 전부터 슬로모션 시작 (게임 시간 초)
+const SLOW_BEFORE=0.5;  // 판정 이 시간 전부터 슬로모션 시작 (게임 시간 초)
 function scheduleSlowmo(basePos,judgeIn){ // 판정 예정 시각 기준으로 진입 시점 예약
   if(!basePos||G.slowUsed||G.slowPending||(G.slow&&G.slow.active)) return;
   G.slowUsed=true; // 타석당 1회
