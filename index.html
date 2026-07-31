@@ -190,17 +190,27 @@ const rand=(a,b)=>a+Math.random()*(b-a), clamp=(v,a,b)=>v<a?a:v>b?b:v;
 
 /* ---- 효과음: Web Audio 신스 (파일 없이 생성, file:// 호환) ---- */
 const AC=(window.AudioContext||window.webkitAudioContext)?new (window.AudioContext||window.webkitAudioContext)():null;
-let noiseBuf=null;
+let noiseBuf=null, MASTER=null;
 if(AC){
   noiseBuf=AC.createBuffer(1,AC.sampleRate*1.5,AC.sampleRate);
   const nd=noiseBuf.getChannelData(0);
   for(let i=0;i<nd.length;i++)nd[i]=Math.random()*2-1;
+  // 마스터 버스 + 리미터: 소리가 겹칠 때 합이 1.0을 넘어 찢어지던(클리핑) 문제 방지
+  MASTER=AC.createGain(); MASTER.gain.value=0.5;
+  const comp=AC.createDynamicsCompressor();
+  comp.threshold.setValueAtTime(-16,AC.currentTime);
+  comp.knee.setValueAtTime(16,AC.currentTime);
+  comp.ratio.setValueAtTime(10,AC.currentTime);
+  comp.attack.setValueAtTime(0.004,AC.currentTime);
+  comp.release.setValueAtTime(0.2,AC.currentTime);
+  MASTER.connect(comp); comp.connect(AC.destination);
+  MASTER.limiter=comp; // 디버그/검증용 참조
 }
 function sfx(type){
   if(!AC||(window.game&&game.muted))return;
   if(AC.state==='suspended')AC.resume();
   const t0=AC.currentTime;
-  const out=AC.createGain(); out.gain.value=0.9; out.connect(AC.destination);
+  const out=AC.createGain(); out.gain.value=0.9; out.connect(MASTER||AC.destination);
   const noise=(dur,fT,f0,f1,g0)=>{
     const s=AC.createBufferSource(); s.buffer=noiseBuf;
     const f=AC.createBiquadFilter(); f.type=fT; f.frequency.setValueAtTime(f0,t0);
@@ -229,7 +239,7 @@ function sfx(type){
       const f=AC.createBiquadFilter(); f.type='bandpass'; f.frequency.value=750; f.Q.value=0.6;
       const g=AC.createGain();
       g.gain.setValueAtTime(0.001,t0);
-      g.gain.exponentialRampToValueAtTime(0.4,t0+0.25);
+      g.gain.exponentialRampToValueAtTime(0.28,t0+0.25);
       g.gain.exponentialRampToValueAtTime(0.001,t0+1.5);
       s.connect(f); f.connect(g); g.connect(out); s.start(t0); s.stop(t0+1.5);
       break; }
@@ -241,7 +251,7 @@ function sfx(type){
         f.frequency.value=rand(1300,2700); f.Q.value=1.1;
         const g=AC.createGain();
         g.gain.setValueAtTime(0.0001,t0+d);
-        g.gain.exponentialRampToValueAtTime(rand(0.10,0.24),t0+d+0.005);
+        g.gain.exponentialRampToValueAtTime(rand(0.06,0.14),t0+d+0.005);
         g.gain.exponentialRampToValueAtTime(0.0001,t0+d+0.075);
         s.connect(f); f.connect(g); g.connect(out); s.start(t0+d); s.stop(t0+d+0.09);
       }
@@ -260,7 +270,7 @@ function playChant(pid){
   const scale=[0,2,4,7,9,12,14]; // 장조 펜타토닉 (밝은 응원 무드)
   const base=247+Math.floor(rnd()*4)*15;
   const beat=0.22, t0=AC.currentTime+0.02;
-  const master=AC.createGain(); master.gain.value=0.2; master.connect(AC.destination);
+  const master=AC.createGain(); master.gain.value=0.2; master.connect(MASTER||AC.destination);
   for(let i=0;i<12;i++){
     const f=base*Math.pow(2,scale[Math.floor(rnd()*scale.length)]/12);
     const os=AC.createOscillator(); os.type='square';
@@ -662,16 +672,17 @@ function setBatterStance(){ // 기본 타격 대기: 리드암이 몸을 가로�
 /* ---- 머리 위 이름표 (스프라이트) ---- */
 function makeNameTag(text){
   const c=document.createElement('canvas'); c.width=256; c.height=64;
-  const x=c.getContext('2d');
-  x.fillStyle='rgba(8,14,20,.72)'; x.fillRect(0,0,256,64);
-  x.strokeStyle='rgba(160,200,240,.8)'; x.lineWidth=3; x.strokeRect(1.5,1.5,253,61);
-  x.fillStyle='#eaf4ff'; x.textAlign='center'; x.textBaseline='middle';
-  let fs=40; x.font=`bold ${fs}px 'Malgun Gothic',sans-serif`;
-  while(x.measureText(text).width>232&&fs>10){fs-=2;x.font=`bold ${fs}px 'Malgun Gothic',sans-serif`;}
-  x.fillText(text,128,34);
+  const x=c.getContext('2d');                       // 배경 박스 없음 — 글자 + 그림자만
+  x.textAlign='center'; x.textBaseline='middle';
+  let fs=38; x.font=`bold ${fs}px 'Malgun Gothic',sans-serif`;
+  while(x.measureText(text).width>236&&fs>10){fs-=2;x.font=`bold ${fs}px 'Malgun Gothic',sans-serif`;}
+  x.shadowColor='rgba(0,0,0,.9)'; x.shadowBlur=7; x.shadowOffsetY=2;
+  x.lineWidth=5; x.strokeStyle='rgba(0,0,0,.75)'; x.strokeText(text,128,34); // 외곽 그림자
+  x.shadowBlur=0; x.shadowOffsetY=0;
+  x.fillStyle='#ffffff'; x.fillText(text,128,34);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),
-    transparent:true,depthTest:false}));
-  sp.scale.set(1.7,0.42,1); sp.position.y=2.35; sp.renderOrder=10;
+    transparent:true,depthTest:false,sizeAttenuation:false})); // 거리와 무관하게 항상 같은 크기
+  sp.scale.set(0.17,0.0425,1); sp.position.y=2.35; sp.renderOrder=10;
   return sp;
 }
 function setNameTag(model,text){ // 모델당 1개 유지 — 텍스트가 바뀌면 새로 그린다
@@ -691,12 +702,16 @@ function refreshNameTags(){
       :(dTeam&&dTeam.lineup?(dTeam.lineup[FIELD_DEF.findIndex(x=>x[2]===f.label)%dTeam.lineup.length]||{}).name:null);
     setNameTag(f.model,nm||f.label);
   });
-  if(bi) setNameTag(batterModel,bi.name);
+  // 타석의 타자는 이름표 없음 (시야를 가림) — 타구를 친 뒤 주자로 뛸 때만 표시
 }
 function applyNameTagVisibility(){
   fielders.forEach(f=>{ if(f.model.userData.tag)f.model.userData.tag.visible=G.showNames; });
-  if(batterModel.userData.tag) batterModel.userData.tag.visible=G.showNames;
+  if(batterModel.userData.tag) batterModel.userData.tag.visible=false; // 타석에서는 항상 숨김
   runnerPool.forEach(r=>{ if(r.model.userData.tag)r.model.userData.tag.visible=G.showNames; });
+}
+function tagBatterRunner(r){ // 타구를 친 타자 = 주자로 뛰기 시작할 때 이름 표시
+  if(!r||!G.showNames) return;
+  const b=curBatterInfo(); if(b) setNameTag(r.model,b.name);
 }
 // 선수들
 const fielders=FIELD_DEF.map(f=>{
@@ -826,6 +841,7 @@ function getRunner(color){
   if(r.model.parts&&r.model.parts.torso) r.model.parts.torso.material=mat(color); // 풀 재사용 시 유니폼 색 갱신
   r.anim=null; // 풀 재사용 시 이전 플레이의 주루 애니메이션 잔재 제거 (홈런 즉시처리 등으로 미완료였을 수 있음)
   r.slideT=0; r.slideAt=null; r.arrivedAt=undefined; // 슬라이딩/접전 상태도 초기화
+  if(r.model.userData.tag){ r.model.userData.tag.visible=false; r.model.userData.tagText=null; } // 이전 이름표 제거
   r.model.rotation.set(0,0,0); r.model.position.y=0;
   return r;
 }
@@ -1260,6 +1276,9 @@ function gameOver(){
   $('banner').style.display='block';
   $('bannerSub').textContent=`최종 ${aw} : ${hm} — 클릭하면 다시 시작`;
   $('bannerSub').style.display='block';
+  scoreFlash(0);                 // 득점 때처럼 최종 스코어를 크게 (엠블럼 포함)
+  G.scoreFlashT=1e9;             // 경기 종료 화면에서는 계속 유지
+  sfx('cheer'); sfx('clap');
 }
 
 /* ================== 투구 ================== */
@@ -1628,13 +1647,20 @@ function exitToDugout(pos,isBatter){
   const d=G.top?-1:1;                       // 어웨이(초)=1루측(-x), 홈(말)=3루측(+x)
   const w=getRunner(batCol());
   w.model.position.copy(pos); w.model.position.y=0;
-  exiters.push({w,tgt:V3(13*d,0,-7)});
+  // 그라운드를 가로지르지 않는다: 먼저 파울라인 바깥으로 빠진 뒤 파울 지역을 따라 더그아웃으로
+  const path=[];
+  const foulSide=d<0?(pos.x+pos.z>0):(pos.x-pos.z<0); // 아직 페어 지역이면 밖으로 먼저
+  if(foulSide) path.push(V3(d*(Math.abs(pos.z)+7),0,pos.z));
+  path.push(V3(d*11,0,-2), V3(d*13,0,-7));
+  exiters.push({w,path,seg:0});
 }
 function updateExiters(dt){
   for(let i=exiters.length-1;i>=0;i--){
     const e=exiters[i], p=e.w.model.position;
-    const d=V3(e.tgt.x-p.x,0,e.tgt.z-p.z), L=d.length();
-    if(L<0.5){ e.w.inUse=false; e.w.model.visible=false; exiters.splice(i,1); continue; }
+    const tgt=e.path[e.seg];
+    if(!tgt){ e.w.inUse=false; e.w.model.visible=false; exiters.splice(i,1); continue; }
+    const d=V3(tgt.x-p.x,0,tgt.z-p.z), L=d.length();
+    if(L<0.6){ e.seg++; continue; }
     d.normalize(); p.addScaledVector(d,5.4*dt); e.w.model.lookAt(p.clone().add(d));
     p.y=Math.abs(Math.sin(performance.now()*0.014))*0.05;
   }
@@ -1653,7 +1679,7 @@ function startRunners(pl){
     const hbr=getRunner(batCol());
     hbr.model.position.set(1.05*G.batSide,0,0);
     ents.push({w:hbr,tgt:0,state:'run',heldAt:-1,isBatter:true,delay:0.3}); // 배팅 후 출발이라 늦다
-    G.batterRunner=hbr; batterModel.visible=false;
+    G.batterRunner=hbr; tagBatterRunner(hbr); batterModel.visible=false;
     G.playCtl.hitCtl={ents,throwDone:false,outs:0,runs:0};
     return;
   }
@@ -1667,7 +1693,7 @@ function startRunners(pl){
     const gbr=getRunner(batCol());
     gbr.model.position.set(1.05*G.batSide,0,0);
     gbr.anim={path:[BASES[0].clone()],speed:gspd,seg:0,delay:0.3}; // 배팅 후 출발이라 늦다
-    G.batterRunner=gbr; batterModel.visible=false;
+    G.batterRunner=gbr; tagBatterRunner(gbr); batterModel.visible=false;
     return;
   }
   const adv=pl.basesHit>0?pl.basesHit:1; // 아웃이어도 1루로 뛴다
@@ -1683,7 +1709,7 @@ function startRunners(pl){
   const br=getRunner(batCol());
   br.model.position.set(1.05*G.batSide,0,0);
   br.anim={path:pathFrom(-1,adv),speed:spd,seg:0,t:0,delay:0.3};
-  G.batterRunner=br;
+  G.batterRunner=br; tagBatterRunner(br);
   batterModel.visible=false; // 타자 모델 → 주자로 교대
 }
 function updateRunners(dt){
@@ -1792,8 +1818,9 @@ function updatePlay(dt){
   // 수비수 이동
   for(const f of fielders){
     if(f.state==='chase'){
-      // 뜬공 낙하점 or 굴러가는 공 현재 위치 추적
-      const tgt=(pl.outs>0&&pl.launch>3)?pl.land:(ballSim.grounded?ballSim.pos:pl.land);
+      // 뜬공: 실제 궤적으로 예측한 낙하점(포구 높이) — 공식 낙하점만 보면 공 옆에 서게 된다
+      const tgt=(pl.outs>0&&pl.launch>3)?(predictLanding()||pl.land)
+                                        :(ballSim.grounded?ballSim.pos:(predictLanding()||pl.land));
       const p=f.model.position,d=V3(tgt.x-p.x,0,tgt.z-p.z),L=d.length();
       if(L>0.4){d.normalize();p.addScaledVector(d,7.5*dt);f.model.lookAt(p.clone().add(d));
         f.model.position.y=Math.abs(Math.sin(performance.now()*0.02))*0.06;}
@@ -1816,8 +1843,9 @@ function updatePlay(dt){
   if(ctl.state==='fly'){
     if(ctl.hrDone){/* hr에서 처리 */}
     else if(pl.outs>0&&pl.launch>3){ // 뜬공/라이너 아웃: 수비수가 실제로 공 옆에 도달해야 포구
-      const near=resp&&V3(resp.model.position.x-ballSim.pos.x,0,resp.model.position.z-ballSim.pos.z).length()<1.5;
-      if((near&&ballSim.pos.y<2.4)||ctl.t>pl.hang+1.6){
+      // 궤적 아래에 제대로 들어간 뒤 잡는다 (예전 1.5m는 공이 옆에 떨어지는 것처럼 보였음)
+      const near=resp&&V3(resp.model.position.x-ballSim.pos.x,0,resp.model.position.z-ballSim.pos.z).length()<0.8;
+      if((near&&ballSim.pos.y<2.2)||ctl.t>pl.hang+1.6){
         ballSim.active=false;
         if(pl.slideCatch){ // 슬라이딩 캐치 연출
           resp.model.rotation.x=-1.05; resp.model.position.y=0.12; resp.slideT=0.9;
@@ -1970,6 +1998,15 @@ function updatePlay(dt){
     if(pl.hitPlay&&!pl.hitRes) finishHit(pl,ctl);
     resolvePlay();
   }
+}
+function predictLanding(){ // 현재 속도로 공이 포구 높이(1.2m)에 내려오는 지점
+  if(!ballSim.active||ballSim.grounded) return null;
+  const g=9.8, yT=1.2, y0=ballSim.pos.y, vy=ballSim.vel.y;
+  const disc=vy*vy+2*g*(y0-yT);
+  if(disc<0) return null;                         // 그 높이까지 못 내려옴
+  const t=(vy+Math.sqrt(disc))/g;
+  if(!(t>0)) return null;
+  return V3(ballSim.pos.x+ballSim.vel.x*t,0,ballSim.pos.z+ballSim.vel.z*t);
 }
 /* ---- 추격 수비수 실시간 재지정: 공에 가장 가까운 수비수가 쫓는다 ---- */
 function reassignChaser(ctl,pl){
