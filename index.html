@@ -503,9 +503,9 @@ const stadium={towers:[],bulbs:[],lights:[]};
   const bowlInner=t=>{
     const A=Math.min(t,360-t);                       // 0=중견, 45=파울폴, 180=홈 뒤
     if(A<=45) return fenceR(A)+6;                    // 홈런 지역 끝에서 조금 떨어져
-    const par=12/Math.sin(A*Math.PI/180-Math.PI/4);  // 파울라인에서 12m 바깥 평행선
-    let r=Math.min(fenceR(45)+6,Math.max(17,par));
-    if(A>150) r+=(A-150)/30*6;                       // 포수 뒤쪽은 움푹 들어가게(뒤로)
+    const par=5.5/Math.sin(A*Math.PI/180-Math.PI/4); // 파울라인 바로 바깥(5.5m) 평행선까지 끌어당김
+    let r=Math.min(fenceR(45)+6,Math.max(16,par));   // 16m 아래로는 더그아웃 통로 확보
+    if(A>150) r+=(A-150)/30*5;                       // 포수 뒤쪽은 움푹 들어가게(뒤로)
     return r;
   };
   const buildBowl=(depth,h0,h1,offset,matSeat)=>{
@@ -1729,7 +1729,7 @@ function judgePlay(deg,launch,exitV){
     if(bestT<=hang-0.1){
       const who=fielders[bestF].label;
       slideCatch=bestT>hang-0.7; // 아슬아슬하면 슬라이딩 캐치
-      outcome=(launch<10?'라인드라이브 아웃':'플라이 아웃')+' ('+who+(slideCatch?' 슬라이딩!':'')+')';
+      outcome=(launch<10?'라인드라이브 아웃':'플라이 아웃')+(slideCatch?' 슬라이딩 캐치!':'');
       outs=1; respIdx=bestF;
     }
     else { outcome='안타…'; hitPlay=true; } // 몇 루타인지는 실제 주루로 결정
@@ -1969,7 +1969,7 @@ function finishGround(ctl,pl){
   pl.groundRes=gr;
   pl.outs=(gr.leadOut?1:0)+(gr.batterOut?1:0);
   pl.dp=pl.outs===2;
-  pl.outcome=pl.outs===2?'병살타!':gr.batterOut?'땅볼 아웃':gr.leadOut?'포스 아웃! (2루, 타자 세이프)':'내야 안타!';
+  pl.outcome=pl.outs===2?'병살타!':gr.batterOut?'땅볼 아웃':gr.leadOut?'포스 아웃!':'내야 안타!';
   ctl.state='caught'; ctl.resolveTimer=0.6; G.camMode='wide';
 }
 
@@ -2311,7 +2311,7 @@ function finishHit(pl,ctl){
   const b=hc.ents.find(e=>e.isBatter);
   let txt;
   if(!b) txt='안타!';
-  else if(b.state==='out') txt='진루사! (타자 아웃)';
+  else if(b.state==='out') txt='진루사!';
   else if(b.state==='scored') txt='인사이드 파크 홈런!!';
   else txt=['안타!','2루타!','3루타!'][b.heldAt]||'안타!';
   if(hc.ents.some(e=>!e.isBatter&&e.state==='out')) txt+=' · 주자 아웃!';
