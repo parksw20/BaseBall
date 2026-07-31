@@ -670,45 +670,71 @@ function setBatterStance(){ // 기본 타격 대기: 리드암이 몸을 가로�
   batterModel.parts.buntBat.visible=false;
 }
 /* ---- 머리 위 이름표 (스프라이트) ---- */
+const nameTags=[];        // {sp, model} — 모델 자식이 아닌 씬 스프라이트(부모 스케일에 찌그러지지 않게)
+const TAG_CANVAS=[256,64];
+const TAG_H=0.037;        // 화면 높이 비율 (이전 0.0425에서 5pt 축소)
 function makeNameTag(text){
-  const c=document.createElement('canvas'); c.width=256; c.height=64;
+  const [W,H]=TAG_CANVAS;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
   const x=c.getContext('2d');                       // 배경 박스 없음 — 글자 + 그림자만
   x.textAlign='center'; x.textBaseline='middle';
   let fs=38; x.font=`bold ${fs}px 'Malgun Gothic',sans-serif`;
-  while(x.measureText(text).width>236&&fs>10){fs-=2;x.font=`bold ${fs}px 'Malgun Gothic',sans-serif`;}
+  while(x.measureText(text).width>W-20&&fs>10){fs-=2;x.font=`bold ${fs}px 'Malgun Gothic',sans-serif`;}
   x.shadowColor='rgba(0,0,0,.9)'; x.shadowBlur=7; x.shadowOffsetY=2;
-  x.lineWidth=5; x.strokeStyle='rgba(0,0,0,.75)'; x.strokeText(text,128,34); // 외곽 그림자
+  x.lineWidth=5; x.strokeStyle='rgba(0,0,0,.75)'; x.strokeText(text,W/2,H/2+2);
   x.shadowBlur=0; x.shadowOffsetY=0;
-  x.fillStyle='#ffffff'; x.fillText(text,128,34);
+  x.fillStyle='#ffffff'; x.fillText(text,W/2,H/2+2);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),
     transparent:true,depthTest:false,sizeAttenuation:false})); // 거리와 무관하게 항상 같은 크기
-  sp.scale.set(0.17,0.0425,1); sp.position.y=2.35; sp.renderOrder=10;
+  sp.renderOrder=10; sp.visible=false; scene.add(sp);
   return sp;
 }
+function clearNameTag(model){
+  const t=model&&model.userData&&model.userData.tag; if(!t) return;
+  scene.remove(t); if(t.material.map)t.material.map.dispose(); t.material.dispose();
+  const i=nameTags.findIndex(n=>n.sp===t); if(i>=0)nameTags.splice(i,1);
+  model.userData.tag=null; model.userData.tagText=null;
+}
 function setNameTag(model,text){ // 모델당 1개 유지 — 텍스트가 바뀌면 새로 그린다
-  if(!model) return;
-  if(model.userData.tagText===text){ if(model.userData.tag)model.userData.tag.visible=!!G.showNames; return; }
-  if(model.userData.tag){ model.remove(model.userData.tag); model.userData.tag.material.map.dispose();
-    model.userData.tag.material.dispose(); }
-  const t=makeNameTag(text); t.visible=!!G.showNames;
-  model.add(t); model.userData.tag=t; model.userData.tagText=text;
+  if(!model||!text) return;
+  if(model.userData.tagText===text) return;
+  clearNameTag(model);
+  const sp=makeNameTag(text);
+  model.userData.tag=sp; model.userData.tagText=text;
+  nameTags.push({sp,model});
+}
+function updateNameTags(){ // 매 프레임: 머리 위 추종 + 화면비 보정 + 시점별 표시
+  const show=G.showNames&&G.camMode!=='bat'&&G.camMode!=='pitch'; // 타자/투수 시점에서는 숨김
+  const ar=camera.aspect||1.6, ratio=TAG_CANVAS[0]/TAG_CANVAS[1];
+  for(const n of nameTags){
+    const vis=show&&n.model.visible;
+    n.sp.visible=vis; if(!vis) continue;
+    n.sp.position.set(n.model.position.x,n.model.position.y+2.25,n.model.position.z);
+    n.sp.scale.set(TAG_H*ratio/ar,TAG_H,1); // 가로세로 비율 유지(찌그러짐 방지)
+  }
 }
 function refreshNameTags(){
   if(!G.kbo){ return; }
   const dTeam=G.top?G.teamCpu:G.teamMy;            // 수비 팀
-  const pi=curPitcherInfo(), bi=curBatterInfo();
+  const pi=curPitcherInfo();
+  if(!dTeam||!dTeam.lineup) return;
+  // 실제 포지션(포수/내야수/외야수)대로 배정 — 타순 순서로 붙이면 포수 자리에 내야수가 온다
+  const pool={C:[],IF:[],OF:[]};
+  dTeam.lineup.forEach(p=>{ pool[/포수/.test(p.pos||'')?'C':/외야/.test(p.pos||'')?'OF':'IF'].push(p); });
+  const used=new Set();
+  const take=(...ks)=>{ for(const k of ks) for(const p of pool[k]) if(!used.has(p)){ used.add(p); return p; }
+    return null; };
+  const byLabel={};
+  byLabel.C=take('C','IF');                                   // 포수 먼저 확정
+  for(const L of ['1B','2B','SS','3B']) byLabel[L]=take('IF','OF');
+  for(const L of ['LF','CF','RF'])      byLabel[L]=take('OF','IF');
   fielders.forEach(f=>{
-    const nm=f.label==='P'&&pi?pi.name
-      :(dTeam&&dTeam.lineup?(dTeam.lineup[FIELD_DEF.findIndex(x=>x[2]===f.label)%dTeam.lineup.length]||{}).name:null);
+    const nm=f.label==='P'?(pi&&pi.name):((byLabel[f.label]||{}).name);
     setNameTag(f.model,nm||f.label);
   });
   // 타석의 타자는 이름표 없음 (시야를 가림) — 타구를 친 뒤 주자로 뛸 때만 표시
 }
-function applyNameTagVisibility(){
-  fielders.forEach(f=>{ if(f.model.userData.tag)f.model.userData.tag.visible=G.showNames; });
-  if(batterModel.userData.tag) batterModel.userData.tag.visible=false; // 타석에서는 항상 숨김
-  runnerPool.forEach(r=>{ if(r.model.userData.tag)r.model.userData.tag.visible=G.showNames; });
-}
+function applyNameTagVisibility(){ updateNameTags(); }
 function tagBatterRunner(r){ // 타구를 친 타자 = 주자로 뛰기 시작할 때 이름 표시
   if(!r||!G.showNames) return;
   const b=curBatterInfo(); if(b) setNameTag(r.model,b.name);
@@ -841,7 +867,7 @@ function getRunner(color){
   if(r.model.parts&&r.model.parts.torso) r.model.parts.torso.material=mat(color); // 풀 재사용 시 유니폼 색 갱신
   r.anim=null; // 풀 재사용 시 이전 플레이의 주루 애니메이션 잔재 제거 (홈런 즉시처리 등으로 미완료였을 수 있음)
   r.slideT=0; r.slideAt=null; r.arrivedAt=undefined; // 슬라이딩/접전 상태도 초기화
-  if(r.model.userData.tag){ r.model.userData.tag.visible=false; r.model.userData.tagText=null; } // 이전 이름표 제거
+  clearNameTag(r.model); // 이전 이름표 제거
   r.model.rotation.set(0,0,0); r.model.position.y=0;
   return r;
 }
@@ -1202,6 +1228,9 @@ function toPrePitch(){
   setMsg(G.playerBatting?'CPU 투수 준비 중… ←→↑↓ 이동, 마우스 조준, 클릭=풀스윙!'
                         :'마우스로 조준 → 누르면 힘 게이지, 드래그=변화구, 떼면 투구');
   if(G.pendingSwap){ G.pendingSwap=false; startBatterSwap(); }
+  // 투수/타자 시점으로 돌아오면 아직 걸어가던 퇴장 주자는 즉시 정리 (화면에 남지 않게)
+  while(exiters.length){ const e=exiters.pop(); clearNameTag(e.w.model);
+    e.w.inUse=false; e.w.model.visible=false; }
   releaseStrayRunners(); // 이전 플레이의 주자 잔상 정리
   // 포수는 항상 등장 (웅크린 높이가 존 시선 아래라 타격 시야를 가리지 않음)
   const cf=fielders.find(f=>f.label==='C');
@@ -2537,6 +2566,7 @@ function update(dt){
     aimMarker.position.set(G.aimPlane.x,G.aimPlane.y,0.02);
   } else aimMarker.visible=false;
   updateCamera(dt);
+  updateNameTags();
 }
 function updateCamera(dt){
   let pos,look,fov=55;
