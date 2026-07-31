@@ -100,7 +100,6 @@
   #confirmBox .no{background:#3a4a5a;color:#dfe9f2;}
   #stealUI{bottom:250px;left:14px;display:none;flex-direction:column;gap:5px;align-items:flex-start;}
   #stealUI.right{left:auto;right:14px;align-items:flex-end;} /* 타석 반대편(폴백) */
-  #stealUI.atBox{right:auto;bottom:auto;align-items:center;transform:translate(-50%,-50%);}
   #stealUI button{pointer-events:auto;font-size:13px;padding:5px 12px;background:#20364a;
     color:#cfe;border:1px solid #4a6a8a;border-radius:6px;cursor:pointer;}
   #stealUI button.armed{background:#2f7bd6;color:#fff;border-color:#7fb4e8;}
@@ -680,8 +679,8 @@ function setBatterStance(){ // 기본 타격 대기: 리드암이 몸을 가로�
 /* ---- 머리 위 이름표 (스프라이트) ---- */
 const nameTags=[];        // {sp, model} — 모델 자식이 아닌 씬 스프라이트(부모 스케일에 찌그러지지 않게)
 const TAG_CANVAS=[256,64];
-const TAG_H=0.037;        // 화면 높이 비율 (이전 0.0425에서 5pt 축소)
-function makeNameTag(text){
+const TAG_H=0.0296;       // 화면 높이 비율 (직전 0.037에서 20% 축소)
+function makeNameTag(text,color){
   const [W,H]=TAG_CANVAS;
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const x=c.getContext('2d');                       // 배경 박스 없음 — 글자 + 그림자만
@@ -691,7 +690,7 @@ function makeNameTag(text){
   x.shadowColor='rgba(0,0,0,.9)'; x.shadowBlur=7; x.shadowOffsetY=2;
   x.lineWidth=5; x.strokeStyle='rgba(0,0,0,.75)'; x.strokeText(text,W/2,H/2+2);
   x.shadowBlur=0; x.shadowOffsetY=0;
-  x.fillStyle='#ffffff'; x.fillText(text,W/2,H/2+2);
+  x.fillStyle=color||'#ffffff'; x.fillText(text,W/2,H/2+2);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),
     transparent:true,depthTest:false,sizeAttenuation:false})); // 거리와 무관하게 항상 같은 크기
   sp.renderOrder=10; sp.visible=false; scene.add(sp);
@@ -703,13 +702,14 @@ function clearNameTag(model){
   const i=nameTags.findIndex(n=>n.sp===t); if(i>=0)nameTags.splice(i,1);
   model.userData.tag=null; model.userData.tagText=null;
 }
-function setNameTag(model,text){ // 모델당 1개 유지 — 텍스트가 바뀌면 새로 그린다
+const RUNNER_TAG='#ffc98a'; // 공격(주자) 이름 = 연주황색
+function setNameTag(model,text,below){ // 모델당 1개 유지 — 텍스트가 바뀌면 새로 그린다
   if(!model||!text) return;
-  if(model.userData.tagText===text) return;
+  if(model.userData.tagText===text&&model.userData.tagBelow===!!below) return;
   clearNameTag(model);
-  const sp=makeNameTag(text);
-  model.userData.tag=sp; model.userData.tagText=text;
-  nameTags.push({sp,model});
+  const sp=makeNameTag(text,below?RUNNER_TAG:'#ffffff');
+  model.userData.tag=sp; model.userData.tagText=text; model.userData.tagBelow=!!below;
+  nameTags.push({sp,model,below:!!below});
 }
 function updateNameTags(){ // 매 프레임: 머리 위 추종 + 화면비 보정 + 시점별 표시
   const show=G.showNames&&G.camMode!=='bat'&&G.camMode!=='pitch'; // 타자/투수 시점에서는 숨김
@@ -718,7 +718,8 @@ function updateNameTags(){ // 매 프레임: 머리 위 추종 + 화면비 보�
   for(const n of nameTags){
     const vis=show&&n.model.visible;
     n.sp.visible=vis; if(!vis) continue;
-    n.sp.position.set(n.model.position.x,n.model.position.y+2.25,n.model.position.z);
+    // 수비=머리 위 / 공격(주자)=발 아래
+    n.sp.position.set(n.model.position.x,n.model.position.y+(n.below?0.02:2.25),n.model.position.z);
     n.sp.scale.set(TAG_H*ratio,TAG_H,1);
   }
 }
@@ -744,9 +745,11 @@ function refreshNameTags(){
   // 타석의 타자는 이름표 없음 (시야를 가림) — 타구를 친 뒤 주자로 뛸 때만 표시
 }
 function applyNameTagVisibility(){ updateNameTags(); }
-function tagBatterRunner(r){ // 타구를 친 타자 = 주자로 뛰기 시작할 때 이름 표시
-  if(!r||!G.showNames) return;
-  const b=curBatterInfo(); if(b) setNameTag(r.model,b.name);
+function tagBatterRunner(r){ // 타구를 친 타자 = 주자로 뛰기 시작할 때 이름 표시(발 아래·연주황)
+  if(!r) return;
+  const b=curBatterInfo(); if(!b) return;
+  r.pname=b.name;
+  if(G.showNames) setNameTag(r.model,b.name,true);
 }
 // 선수들
 const fielders=FIELD_DEF.map(f=>{
@@ -770,9 +773,11 @@ const fielders=FIELD_DEF.map(f=>{
 function nearestFielder(pos){ let b=null,d=1e9;
   for(const f of fielders){ const t=f.model.position.distanceTo(pos); if(t<d){d=t;b=f;} }
   return d<4?b:null; }
-function glovePose(f,at){ // 포구 동작: 글러브 낀 왼팔을 공 쪽으로 뻗는다
+function glovePose(f,at){ // 포구 동작: 공이 오는 정면을 보고 글러브 낀 왼팔을 뻗는다
   if(!f||!f.model.parts) return;
   f.catchT=0.55; f.catchAt=at?at.clone():null;
+  if(at){ const p=f.model.position;
+    f.model.lookAt(V3(at.x,p.y,at.z)); } // 공 쪽을 향해 몸을 돌린다
 }
 function updateGlove(f,dt){
   const aL=f.model.parts&&f.model.parts.armL; if(!aL) return;
@@ -1005,33 +1010,27 @@ function updateStealUI(){ // 도루 작전 버튼 (내 공격 + 앞 베이스 �
   // 우타자는 화면 오른쪽(3루측), 좌타자는 왼쪽(1루측) — 타자가 서 있는 쪽에 붙인다
   el.classList.toggle('right',(G.batSide||1)>0);
   const wild=G.phase==='wild';
-  if(!G.playerBatting||(G.phase!=='prePitch'&&!wild)){el.style.display='none';return;}
+  if(!G.playerBatting||(G.phase!=='prePitch'&&!wild)){el.style.display='none';el.dataset.want='0';return;}
   const opts=[];
   if(G.bases[0]&&!G.bases[1])opts.push([0,'2루 도루']);
   if(G.bases[1]&&!G.bases[2])opts.push([1,'3루 도루']);
-  if(!opts.length){el.style.display='none';G.stealPlan=null;return;}
+  if(!opts.length){el.style.display='none';el.dataset.want='0';G.stealPlan=null;return;}
   el.innerHTML=opts.map(([b,label])=> wild
     ? `<button class="armed" onclick="wildAdvance(${b})">⚡ ${label} (지금!)</button>`
     : `<button class="${G.stealPlan&&G.stealPlan.b===b?'armed':''}" onclick="toggleSteal(${b})">`+
       `${G.stealPlan&&G.stealPlan.b===b?'✓ ':''}${label}</button>`).join('');
-  el.style.display='flex';
-  placeStealUI(el);
+  el.dataset.want='1';
+  syncStealUIVisibility();
 }
-function placeStealUI(el){ // 비어 있는 반대편 타석 자리에 버튼을 붙인다
-  const W=innerWidth||renderer.domElement.clientWidth, H=innerHeight||renderer.domElement.clientHeight;
-  if(!W||!H||G.camMode!=='bat'){ el.classList.remove('atBox'); return; }
-  const p=V3(-1.05*(G.batSide||1),0,0.2).project(camera); // 반대편(비어 있는) 타석 바닥 지점
-  if(!isFinite(p.x)||!isFinite(p.y)||p.z>1){ el.classList.remove('atBox'); return; }
-  const px=(p.x*0.5+0.5)*W, py=(-p.y*0.5+0.5)*H-30; // 바닥에서 살짝 위
-  el.classList.add('atBox');
-  el.style.left=clamp(px,90,W-90)+'px';
-  el.style.top=clamp(py,80,H-120)+'px';
+function syncStealUIVisibility(){ // 타자 시점에서만 표시 (좌/우 고정 위치)
+  const el=document.getElementById('stealUI'); if(!el) return;
+  el.style.display=(el.dataset.want==='1'&&G.camMode==='bat')?'flex':'none';
 }
 /* ---- 폭투(포수 포구 실패) → 그 자리에서 도루 요청 ---- */
 function startWildWindow(){
   hideBanner();
   G.phase='wild'; G.wildT=1.8; G.wildStart=G.clock; G.wildDelay=0; // 이 시간 안에 요청해야 진루 가능
-  G.camMode='wide'; G.camSnap=true;
+  G.camMode='bat'; G.camSnap=true; // 버튼이 보이는 타자 시점 유지
   setMsg('⚡ 폭투! 지금 도루를 요청하세요');
   updateStealUI();
 }
@@ -1054,7 +1053,8 @@ window.wildAdvance=b=>{ // 폭투 상황에서 한 베이스 진루 — 포수 �
 function finishWild(safe){
   const w=G.wildRun; G.wildRun=null;
   if(w){
-    if(safe){ G.bases[w.b+1]=true; G.bases[w.b]=false; showCall('진루 성공!','#7ed957'); }
+    if(safe){ G.bases[w.b+1]=true; G.bases[w.b]=false; showCall('진루 성공!','#7ed957');
+      if(G.baseNames){G.baseNames[w.b+1]=G.baseNames[w.b];G.baseNames[w.b]=null;} }
     else { showCall('아웃!','#ff6b6b'); G.bases[w.b]=false; recordOut();
            exitToDugout(w.r.model.position.clone()); w.r.model.visible=false; w.r.anim=null; }
     syncRunnerMeshes(); refreshHUD();
@@ -1276,6 +1276,7 @@ function toPrePitch(){
   // 포수는 항상 등장 (웅크린 높이가 존 시선 아래라 타격 시야를 가리지 않음)
   const cf=fielders.find(f=>f.label==='C');
   if(cf) cf.model.visible=true;
+  { const bi2=curBatterInfo(); G.batterName=bi2?bi2.name:null; } // 주자 이름 추적용
   updateStealUI();
   updateBatterCard();
   if(G.showNames) refreshNameTags(); // 타자·투수 교체 반영
@@ -1318,7 +1319,10 @@ function newBatter(advance=true){
 function recordOut(n=1){G.outs=Math.min(3,G.outs+n);}
 function nextAfterPitch(){ if(G.outs>=3){switchSides();} else toPrePitch(); }
 function switchSides(){
-  G.outs=0; G.bases=[false,false,false]; newBatter(false); syncRunnerMeshes();
+  G.outs=0; G.bases=[false,false,false]; G.baseNames=[null,null,null];
+  while(exiters.length){ const e=exiters.pop(); clearNameTag(e.w.model);
+    e.w.inUse=false; e.w.model.visible=false; } // 회차 종료 → 남은 퇴장 인원 즉시 정리
+  newBatter(false); syncRunnerMeshes();
   G.pendingSwap=false; clearSwapAnim(); // 공수교대는 전원 교체라 개별 교대 연출 생략
   const wasTop=G.top, aw=totalScore(0), hm=totalScore(1);
   if(wasTop){
@@ -1528,8 +1532,12 @@ function finishWalkAnim(){
   if(!checkWalkoff()) toPrePitch();
 }
 function walkAdvance(){
-  if(G.bases[0]){if(G.bases[1]){if(G.bases[2])addRun(1);G.bases[2]=true;}G.bases[1]=true;}
-  G.bases[0]=true; syncRunnerMeshes();
+  const bn=(G.baseNames||[null,null,null]).slice();
+  if(G.bases[0]){ if(G.bases[1]){ if(G.bases[2])addRun(1); G.bases[2]=true; bn[2]=bn[1]; }
+    G.bases[1]=true; bn[1]=bn[0]; }
+  G.bases[0]=true; bn[0]=G.batterName||null;   // 밀어내기 순서대로 이름도 이동
+  G.baseNames=bn;
+  syncRunnerMeshes();
 }
 
 /* ================== 타격 ================== */
@@ -1679,7 +1687,18 @@ function syncRunnerMeshes(){
   G.bases.forEach((occ,i)=>{ if(occ){
     const r=getRunner(batCol());
     r.model.position.copy(BASES[i]); r.model.lookAt(i<2?BASES[Math.min(i+1,2)]:HOMEP);
+    r.pname=(G.baseNames&&G.baseNames[i])||null;
+    if(r.pname&&G.showNames) setNameTag(r.model,r.pname,true); // 주자 이름(발 아래·연주황)
     G.runners[i]=r; }});
+}
+/* ---- 누상 주자 이름 추적: 베이스별로 누가 있는지 기억 ---- */
+function shiftBaseNames(nb,map){ // map: 새 베이스 i ← 이전 베이스 idx(-1=타자)
+  const prev=(G.baseNames||[null,null,null]).slice(), bn=[null,null,null];
+  for(let i=0;i<3;i++){ if(!nb[i]) continue;
+    const from=map[i];
+    bn[i]=(from===-1)?(G.batterName||null):(from>=0?prev[from]:null);
+  }
+  G.baseNames=bn;
 }
 /* ---- 슬라이딩 & 접전 슬로모션 ---- */
 const CLOSE_CALL=0.3;   // 주자·송구 도착 차이가 이 이내면 "접전"으로 보고 슬로모션
@@ -1751,10 +1770,10 @@ function startRunners(pl){
     const ents=[];
     for(let i=2;i>=0;i--){ if(G.runners[i]){
       G.runners[i].model.position.lerpVectors(BASES[i],STATIONS[i+1],0.08); // 리드: 미리 다음 베이스쪽
-      ents.push({w:G.runners[i],tgt:i+1,state:'run',heldAt:i,isBatter:false}); }}
+      ents.push({w:G.runners[i],tgt:i+1,state:'run',heldAt:i,startBase:i,isBatter:false}); }}
     const hbr=getRunner(batCol());
     hbr.model.position.set(1.05*G.batSide,0,0);
-    ents.push({w:hbr,tgt:0,state:'run',heldAt:-1,isBatter:true,delay:0.3}); // 배팅 후 출발이라 늦다
+    ents.push({w:hbr,tgt:0,state:'run',heldAt:-1,startBase:-1,isBatter:true,delay:0.3}); // 배팅 후 출발이라 늦다
     G.batterRunner=hbr; tagBatterRunner(hbr); batterModel.visible=false;
     G.playCtl.hitCtl={ents,throwDone:false,outs:0,runs:0};
     return;
@@ -1844,7 +1863,7 @@ function nextGroundStage(ctl,pl,fromPos,carrier){ // 다음 포스: 직접 뛰�
         dur:Math.max(0.2,fromPos.distanceTo(best.model.position)/34),receiver:best,windup:windupOf(ctl)};
       best.state='hold';
     } else startThrow(ctl,fromPos);
-    if(carrier) carrier.model.lookAt(ctl.thrown.to);
+    if(carrier&&ctl.thrown) ctl.thrown.thrower=carrier; // 포구 자세를 잠깐 보여준 뒤(릴리스 때) 송구 방향으로
   }
 }
 function finishGround(ctl,pl){
@@ -2010,8 +2029,9 @@ function updatePlay(dt){
     }
   } else if(ctl.state==='throw'&&ctl.thrown){
     const th=ctl.thrown;
-    if(th.windup>0){ th.windup-=dt; ball.position.copy(th.from); } // 던지기 전 잡고 준비
-    else th.t+=dt;
+    if(th.windup>0){ th.windup-=dt; ball.position.copy(th.from); // 던지기 전 잡고 준비
+      if(th.windup<=0&&th.thrower) th.thrower.model.lookAt(V3(th.to.x,th.thrower.model.position.y,th.to.z));
+    } else th.t+=dt;
     const k=Math.min(1,th.t/th.dur);
     ball.position.lerpVectors(th.from,th.to,k);
     ball.position.y+=Math.sin(Math.PI*k)*1.2;
@@ -2196,7 +2216,7 @@ function finishHit(pl,ctl){
   if(hc.ents.some(e=>!e.isBatter&&e.state==='out')) txt+=' · 주자 아웃!';
   pl.outcome=txt;
   pl.hitRes={runs:hc.runs,outs:hc.outs,batterOut:!!(b&&b.state==='out'),
-    held:hc.ents.filter(e=>e.state==='held').map(e=>e.heldAt)};
+    held:hc.ents.filter(e=>e.state==='held').map(e=>e.heldAt), ents:hc.ents};
 }
 function resolvePlay(){
   const pl=G.playCtl.pl;
@@ -2211,8 +2231,11 @@ function resolvePlay(){
 }
 function applyPlayRules(pl){
   if(pl.hitPlay&&pl.hitRes){ // 안타: 실제 주루 결과 그대로 반영
-    const nb=[false,false,false];
+    const nb=[false,false,false], map=[-9,-9,-9];
     pl.hitRes.held.forEach(h=>{ if(h>=0&&h<3) nb[h]=true; });
+    if(pl.hitRes.ents) pl.hitRes.ents.forEach(e=>{ // 어느 베이스에 누가 남았는지
+      if(e.state==='held'&&e.heldAt>=0&&e.heldAt<3) map[e.heldAt]=e.isBatter?-1:e.startBase; });
+    shiftBaseNames(nb,map);
     G.bases=nb; recordOut(pl.hitRes.outs);
     if(pl.hitRes.batterOut) G.pendingSwap=true;
     let hRuns=pl.hitRes.runs;
@@ -2221,13 +2244,14 @@ function applyPlayRules(pl){
     newBatter(); return;
   }
   if(pl.ground&&pl.groundRes){ // 땅볼: 레이스 결과대로 포스 체인 진루/아웃
-    const gr=pl.groundRes, b=G.bases.slice(); const nb=[false,false,false];
+    const gr=pl.groundRes, b=G.bases.slice(); const nb=[false,false,false], map=[-9,-9,-9];
     let runs=0,outsN=0;
     const f3=b[0]&&b[1], fH=b[0]&&b[1]&&b[2];
-    if(b[2]){ if(fH)runs++; else nb[2]=true; }
-    if(b[1]){ if(f3)nb[2]=true; else nb[1]=true; }
-    if(b[0]){ if(gr.leadOut)outsN++; else nb[1]=true; }
-    if(gr.batterOut){outsN++; G.pendingSwap=true;} else nb[0]=true;
+    if(b[2]){ if(fH)runs++; else {nb[2]=true;map[2]=2;} }
+    if(b[1]){ if(f3){nb[2]=true;map[2]=1;} else {nb[1]=true;map[1]=1;} }
+    if(b[0]){ if(gr.leadOut)outsN++; else {nb[1]=true;map[1]=0;} }
+    if(gr.batterOut){outsN++; G.pendingSwap=true;} else {nb[0]=true;map[0]=-1;}
+    shiftBaseNames(nb,map);
     G.bases=nb; recordOut(outsN);
     if(G.outs>=3) runs=0; // 3아웃 완성 → 그 플레이의 득점 무효
     if(runs>0){ addRun(runs); pl.outcome+=`  +${runs}점!`; }
@@ -2241,8 +2265,12 @@ function applyPlayRules(pl){
   }
   if(pl.basesHit>0){
     let runs=0;const b=G.bases.slice();G.bases=[false,false,false];
-    for(let i=2;i>=0;i--){if(b[i]){const to=i+pl.basesHit;if(to>=3)runs++;else G.bases[to]=true;}}
-    if(pl.basesHit>=4)runs++;else G.bases[pl.basesHit-1]=true;
+    const nb=[false,false,false], map=[-9,-9,-9];
+    for(let i=2;i>=0;i--){if(b[i]){const to=i+pl.basesHit;
+      if(to>=3)runs++;else{G.bases[to]=true;nb[to]=true;map[to]=i;}}}
+    if(pl.basesHit>=4)runs++;
+    else{G.bases[pl.basesHit-1]=true;nb[pl.basesHit-1]=true;map[pl.basesHit-1]=-1;}
+    shiftBaseNames(nb,map);
     if(runs>0)addRun(runs);
   }
   newBatter();
@@ -2583,7 +2611,8 @@ function update(dt){
       glovePose(nearestFielder(th.to),th.to); // 베이스에서 글러브로 받기
       const sb=G.stealLive.b, r=G.runners[sb];
       const safe=r&&r.model.position.distanceTo(BASES[sb+1])<=0.6;
-      if(safe){ showCall('도루 성공!','#7ed957'); G.bases[sb+1]=true; G.bases[sb]=false; }
+      if(safe){ showCall('도루 성공!','#7ed957'); G.bases[sb+1]=true; G.bases[sb]=false;
+        if(G.baseNames){G.baseNames[sb+1]=G.baseNames[sb];G.baseNames[sb]=null;} }
       else { showCall('도루 실패!','#ff6b6b'); G.bases[sb]=false; recordOut(); }
       G.stealLive.done=true; G.stealThrow=null;
       syncRunnerMeshes(); refreshHUD();
@@ -2626,6 +2655,7 @@ function update(dt){
   } else aimMarker.visible=false;
   updateCamera(dt);
   updateNameTags();
+  syncStealUIVisibility();
 }
 function updateCamera(dt){
   let pos,look,fov=55;
