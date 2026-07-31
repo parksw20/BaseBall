@@ -641,19 +641,28 @@ function setNight(on){
     const nc=document.createElement('canvas'); nc.width=64; nc.height=256;
     const c2=nc.getContext('2d');
     const gr2=c2.createLinearGradient(0,0,0,256);
-    gr2.addColorStop(0,'#050a18'); gr2.addColorStop(0.7,'#0c1630'); gr2.addColorStop(1,'#1a2742');
+    gr2.addColorStop(0,'#01030a'); gr2.addColorStop(0.7,'#050b1c'); gr2.addColorStop(1,'#0d1730');
     c2.fillStyle=gr2; c2.fillRect(0,0,64,256);
-    c2.fillStyle='#fff';
-    for(let i=0;i<90;i++){ c2.globalAlpha=0.3+Math.random()*0.7;
-      c2.fillRect(Math.random()*64,Math.random()*140,1.2,1.2); }
+    for(let i=0;i<420;i++){ // 별: 위쪽에 더 촘촘하되 지평선 근처까지 뿌린다
+      const y=Math.pow(Math.random(),1.3)*215, s=Math.random()<0.14?2.2:1.2;
+      c2.globalAlpha=0.4+Math.random()*0.6;
+      c2.fillStyle=Math.random()<0.15?'#cfe0ff':'#ffffff';
+      c2.fillRect(Math.random()*64,y,s,s);
+    }
     c2.globalAlpha=1;
     nightTex=new THREE.CanvasTexture(nc);
   }
   sky.material.map=on?nightTex:dayTex; sky.material.needsUpdate=true;
   scene.fog.color.setHex(on?0x0c1424:0x87b5e0);
-  sun.intensity=on?0.12:0.9;
-  amb.intensity=on?0.3:0.55;
-  amb.color.setHex(on?0x8898c8:0xffffff);
+  sun.intensity=on?0.05:0.9;      // 야간은 더 어둡게
+  amb.intensity=on?0.16:0.55;
+  amb.color.setHex(on?0x5a6a96:0xffffff);
+  scene.background=new THREE.Color(on?0x050a16:0x87b5e0);
+  // 구름도 밤 톤으로 (공유 머티리얼 하나만 바꾸면 전부 반영)
+  if(clouds[0]&&clouds[0].children[0]){
+    const cm=clouds[0].children[0].material;
+    cm.color.setHex(on?0x2a3550:0xffffff); cm.opacity=on?0.5:0.88;
+  }
   stadium.lights.forEach(l=>l.intensity=on?1.15:0);
   stadium.bulbs.forEach(b=>b.material.color.setHex(on?0xfff6d8:0x777777));
 }
@@ -855,18 +864,18 @@ const fielders=FIELD_DEF.map(f=>{
     m.parts.armL.rotation.set(-1.25,0,0.2);
   }
   // 글러브(왼손) — 포구 시 이 손으로 잡는 동작을 한다
-  const gl=new THREE.Mesh(new THREE.SphereGeometry(0.1,10,8),mat(0x6b3f1d,0.7));
-  gl.scale.set(1,1.2,0.8); gl.position.y=-0.47; gl.castShadow=true;
+  const gl=new THREE.Mesh(new THREE.SphereGeometry(0.17,12,10),mat(0xb5651d,0.55));
+  gl.scale.set(1,1.25,0.75); gl.position.y=-0.52; gl.castShadow=true;
   m.parts.armL.add(gl); m.parts.glove=gl;
   return {def:f,home:polar(f[0],f[1]),model:m,label:f[2],state:'idle',target:null,
-          restArmL:m.parts.armL.rotation.clone(),catchT:0};
+          restArmL:m.parts.armL.rotation.clone(),restArmR:m.parts.armR.rotation.clone(),catchT:0};
 });
 function nearestFielder(pos){ let b=null,d=1e9;
   for(const f of fielders){ const t=f.model.position.distanceTo(pos); if(t<d){d=t;b=f;} }
   return d<4?b:null; }
 function glovePose(f,at,travel){ // 포구 동작: 공이 날아온 방향을 정면으로 보고 글러브를 뻗는다
   if(!f||!f.model.parts) return;
-  f.catchT=0.55; f.catchAt=at?at.clone():null;
+  f.catchT=0.85; f.catchAt=at?at.clone():null; // 포구 자세 유지 시간(눈에 보이게)
   const p=f.model.position;
   // travel = 공의 진행 방향 → 그 반대(공이 온 쪽)를 바라본다. 없으면 공 위치 기준.
   let dir=null;
@@ -875,13 +884,14 @@ function glovePose(f,at,travel){ // 포구 동작: 공이 날아온 방향을 �
   if(dir) f.model.lookAt(p.clone().add(dir));
 }
 function updateGlove(f,dt){
-  const aL=f.model.parts&&f.model.parts.armL; if(!aL) return;
+  const P=f.model.parts, aL=P&&P.armL, aR=P&&P.armR; if(!aL) return;
   if(f.catchT>0){
     f.catchT-=dt;
-    const k=clamp(f.catchT/0.55,0,1);              // 1=포구 순간 → 0=원위치
-    const up=f.catchAt?clamp((f.catchAt.y-0.9)*1.1,-0.5,1.1):0.2;
-    aL.rotation.set(f.restArmL.x-(1.35+up)*k, f.restArmL.y, f.restArmL.z*(1-k)+0.05*k);
-    if(f.catchT<=0) aL.rotation.copy(f.restArmL);
+    const k=clamp(f.catchT/0.85,0,1);               // 1=포구 순간 → 0=원위치
+    const up=f.catchAt?clamp((f.catchAt.y-0.9)*1.0,-0.6,1.5):0.3;
+    aL.rotation.set(f.restArmL.x-(1.6+up)*k, f.restArmL.y, f.restArmL.z*(1-k)-0.25*k);
+    if(aR&&f.restArmR) aR.rotation.set(f.restArmR.x-(1.15+up*0.7)*k, f.restArmR.y, f.restArmR.z*(1-k)+0.2*k);
+    if(f.catchT<=0){ aL.rotation.copy(f.restArmL); if(aR&&f.restArmR)aR.rotation.copy(f.restArmR); }
   }
 }
 const batterModel=makeHumanoid(0xd6b93a,0x555555); attachBat(batterModel);
@@ -1199,7 +1209,12 @@ function ensureCell(){for(const s of G.score){if(s[G.inning-1]===undefined)s[G.i
 const $=id=>document.getElementById(id);
 /* ---- 로컬 자산: 사진·로고는 저장소에 없음 — 내 PC 폴더를 연결하면 나만 보임 ---- */
 const LOCAL_ASSETS={};
-function AST(rel){ return LOCAL_ASSETS[rel] || (G.kbo?G.kbo.base+rel:rel); }
+function AST(rel){ // 로컬 연결 자산 우선 (경로 → 파일명 순으로 조회)
+  if(LOCAL_ASSETS[rel]) return LOCAL_ASSETS[rel];
+  const base=String(rel).split('/').pop();
+  if(LOCAL_ASSETS[base]) return LOCAL_ASSETS[base];
+  return G.kbo?G.kbo.base+rel:rel;
+}
 async function pickAssets(){
   try{
     let files=[];
@@ -1210,10 +1225,14 @@ async function pickAssets(){
         else await walk(e,pre+n+'/'); } };
       await walk(dir,'');
     }else{
+      // iOS/아이패드는 폴더 선택을 지원하지 않는다 → 파일 다중 선택으로 받는다
+      const dirOK='webkitdirectory' in document.createElement('input')&&!/iPad|iPhone|iPod/.test(navigator.userAgent);
       files=await new Promise((res,rej)=>{
         const inp=document.createElement('input');
-        inp.type='file'; inp.webkitdirectory=true;
-        inp.onchange=()=>res([...inp.files].map(f=>[f.webkitRelativePath.split('/').slice(1).join('/'),f]));
+        inp.type='file'; inp.multiple=true; inp.accept='image/*';
+        if(dirOK) inp.webkitdirectory=true;
+        inp.onchange=()=>res([...inp.files].map(f=>
+          [(f.webkitRelativePath||f.name).split('/').slice(dirOK?1:0).join('/'),f]));
         inp.oncancel=()=>rej('cancel'); inp.click();
       });
     }
@@ -1222,7 +1241,11 @@ async function pickAssets(){
       if(!/\.(png|jpe?g|gif|webp)$/i.test(p0)) continue;
       const p=p0.replace(/^.*?output\//,''); // output 상위 폴더를 골라도 동작
       if(LOCAL_ASSETS[p]) URL.revokeObjectURL(LOCAL_ASSETS[p]);
-      LOCAL_ASSETS[p]=URL.createObjectURL(f); n++;
+      const url=URL.createObjectURL(f);
+      LOCAL_ASSETS[p]=url;
+      const base=p.split('/').pop();          // 폴더 정보 없이 파일만 골라도 이름으로 매칭
+      if(base&&!LOCAL_ASSETS[base]) LOCAL_ASSETS[base]=url;
+      n++;
     }
     for(const k in jumboLogoCache) delete jumboLogoCache[k];
     if(G.phase!=='menu'){ renderRosters(); updateBatterCard(); refreshHUD(); }
@@ -1435,6 +1458,10 @@ function switchSides(){
   } else {
     if(G.inning>=G.innings&&aw!==hm) return gameOver();
     G.inning++; G.top=true; ensureCell();
+    // 경기 중반을 넘어가면 야간 경기로 전환 (한 번만, 수동 조작 전에만)
+    if(!G.night&&!G.nightAuto&&G.inning>G.innings/2){
+      G.nightAuto=true; setNight(true); applyNightUI();
+    }
     G.camMode='bat'; // 다음 역할(타자) 시점
     showBanner(`${G.inning}회 초`,toPrePitch,1.5);
   }
@@ -2048,7 +2075,6 @@ function updatePlay(dt){
   }
   // 수비수 이동
   for(const f of fielders){
-    updateGlove(f,dt); // 포구 동작 복귀
     if(f.state==='chase'){
       // 뜬공: 실제 궤적으로 예측한 낙하점(포구 높이) — 공식 낙하점만 보면 공 옆에 서게 된다
       const tgt=(pl.outs>0&&pl.launch>3)?(predictLanding()||pl.land)
@@ -2548,10 +2574,13 @@ $('btnPause').onclick=()=>{
   setMsg(G.paused?'⏸ 일시정지 — ▶️ 버튼으로 재개':'');
   sfx('click');
 };
-$('btnNight').onclick=()=>{
-  setNight(!G.night);
+function applyNightUI(){
   $('btnNight').classList.toggle('on',G.night);
-  $('btnNight').textContent=G.night?'☀️':'🌙';
+  $('btnNight').innerHTML=(G.night?'☀️':'🌙')+' <span>'+(G.night?'주간 경기':'야간 경기')+'</span>';
+}
+$('btnNight').onclick=()=>{
+  setNight(!G.night); G.nightAuto=true; // 수동 조작 후에는 자동 전환하지 않음
+  applyNightUI();
   sfx('click');
 };
 $('btnDebug').onclick=()=>{
@@ -2628,6 +2657,7 @@ function update(dt){
   G.clock=(G.clock||0)+dt;
   // 예약된 접전 슬로모션: 판정 SLOW_BEFORE초 전에 진입
   if(G.slowPending&&G.clock>=G.slowPending.at){ const b=G.slowPending.base; G.slowPending=null; enterSlowmo(b); }
+  for(const f of fielders) updateGlove(f,dt); // 포구 동작은 인플레이 밖(도루 저지·파울 플라이)에서도 재생
   updateExiters(dt); // 아웃된 주자 더그아웃 퇴장 (플레이 종료 후에도 계속 걸어간다)
   for(const r of runnerPool) updateSlide(r,dt); // 슬라이딩 자세 복구 (모든 주자는 풀에서 나온다)
   // 존 판정 유예(늦은 스윙 인정) 타이머
