@@ -527,6 +527,7 @@ const stadium={towers:[],bulbs:[],lights:[]};
     const m=new THREE.Mesh(g,matSeat); m.receiveShadow=true; grp.add(m);
     return {depth,h0,h1,offset};
   };
+  stadium.bowlInner=bowlInner; // 파울 플라이 포구 가능 여부 판정에 사용
   const bowls=[];
   bowls.push(buildBowl(26,1.4,10.5,0,seatA));      // 1층 (그라운드 레벨 → 위로)
   bowls.push(buildBowl(22,10.5,20.5,26,seatB));    // 2층 — 1층 끝점에서 바로 이어져 틈이 없다
@@ -1641,12 +1642,40 @@ function walkAdvance(){
 }
 
 /* ================== 타격 ================== */
-function launchFoulBall(deg,launch,exitV){ // 파울 타구도 실제 궤적으로 보여준다 (판정과 무관한 연출)
+function launchFoulBall(deg,launch,exitV){ // 파울 타구도 실제 궤적으로 비행 — 뜬공이면 수비수가 잡을 수 있다
   const th=launch*Math.PI/180, dir=polar(deg,1);
-  G.foulFly={pos:V3(0,1.0,0),
-    vel:V3(dir.x*exitV*Math.cos(th),exitV*Math.sin(th),dir.z*exitV*Math.cos(th)),t:0};
+  const vel=V3(dir.x*exitV*Math.cos(th),exitV*Math.sin(th),dir.z*exitV*Math.cos(th));
+  G.foulFly={pos:V3(0,1.0,0),vel,t:0};
   G.camMode='wide'; G.camSnap=true;
   ball.visible=true; blob.visible=true;
+  // 포구 가능성: 낙하 시간 안에 도달할 수 있는 수비수가 있고, 낙하지점이 관중석 안쪽이어야 한다
+  if(vel.y<=3) return null;                                   // 낮은 파울은 포구 불가
+  const hang=(vel.y+Math.sqrt(Math.max(0,vel.y*vel.y+2*9.8*(1.0-1.2))))/9.8;
+  const flat=Math.hypot(vel.x,vel.z), dist=flat*hang;
+  const land=V3(vel.x/ (flat||1)*dist,0,vel.z/(flat||1)*dist);
+  const A=Math.abs(Math.atan2(land.x,land.z)*180/Math.PI);
+  if(dist>stadium.bowlInner(A)-2.5) return null;               // 관중석으로 넘어가면 못 잡음
+  let best=null,bt=1e9;
+  for(const f of fielders){
+    const t=(f.model.position.distanceTo(land)-1.0)/7.5;
+    if(t<bt){bt=t;best=f;}
+  }
+  if(!best||bt>hang-0.15) return null;                         // 시간 안에 못 감
+  G.foulFly.catcher=best; G.foulFly.land=land; G.foulFly.hang=hang;
+  best.state='chase'; best.target=land.clone();
+  return G.foulFly;
+}
+function foulFlyOut(){ // 파울 플라이 아웃 확정
+  G.foulFly=null;
+  recordOut(); refreshHUD(); G.pendingSwap=true; G.swapWalk=true;
+  showCall('아웃!','#ff6b6b');
+  showBanner('파울 플라이 아웃!',()=>{newBatter();nextAfterPitch();},1.3);
+}
+function foulFlyMissed(){ // 못 잡음 → 평범한 파울
+  G.foulFly=null;
+  if(G.strikes<2)G.strikes++; refreshHUD();
+  if(G.phase==='banner'){ hideBanner(); }
+  showBanner('파울!',toPrePitch,0.7);
 }
 function resolveContact(fin,swing){
   const dt=swing.timeErr;
@@ -1672,8 +1701,9 @@ function resolveContact(fin,swing){
       if(sr){sr.anim=null;sr.model.position.copy(BASES[G.stealLive.b]);}
       G.stealLive=null;}
     sfx('foul');
-    launchFoulBall(180+rand(-35,35),rand(35,75),8+q*25); // 팁 → 뒤로 튀는 공
+    const ff=launchFoulBall(180+rand(-35,35),rand(35,75),8+q*25); // 팁 → 뒤로 튀는 공
     if(G.debugCenter){ G.phase='banner'; G.bannerT=0.5; G.afterBanner=toPrePitch; return; }
+    if(ff&&ff.catcher){ showBanner('파울 플라이!',null,2.4); return; } // 포구 결과는 비행 중 판정
     if(G.strikes<2)G.strikes++; refreshHUD();
     showBanner('파울팁!',toPrePitch,1.4); return;
   }
@@ -1695,8 +1725,9 @@ function resolveContact(fin,swing){
       if(sr){sr.anim=null;sr.model.position.copy(BASES[G.stealLive.b]);}
       G.stealLive=null;}
     sfx('foul');
-    launchFoulBall(deg,launch,exitV); // 파울 방향·각도 그대로 비행
+    const ff=launchFoulBall(deg,launch,exitV); // 파울 방향·각도 그대로 비행
     if(G.debugCenter){ G.phase='banner'; G.bannerT=0.5; G.afterBanner=toPrePitch; return; }
+    if(ff&&ff.catcher){ showBanner('파울 플라이!',null,2.4); return; } // 잡으면 아웃, 놓치면 파울
     if(G.strikes<2)G.strikes++; refreshHUD();
     showBanner('파울!',toPrePitch,1.5); return;
   }
@@ -2712,14 +2743,30 @@ function update(dt){
   }
   // 도루 진행: 주자 이동(ballFlight 포함) + 포수 송구 레이스
   if(G.stealLive&&!G.stealLive.done&&G.phase==='ballFlight') updateRunners(dt);
-  if(G.foulFly){ // 파울 타구 비행 (연출 전용, 판정 없음)
+  if(G.foulFly){ // 파울 타구 비행 — 뜬공이면 수비수가 쫓아가 잡을 수 있다
     const F=G.foulFly; F.t+=dt;
     F.vel.y-=9.8*dt; F.pos.addScaledVector(F.vel,dt);
-    if(F.pos.y<0.11){ F.pos.y=0.11;
+    let landed=false;
+    if(F.pos.y<0.11){ F.pos.y=0.11; landed=true;
       if(Math.abs(F.vel.y)>1.5){F.vel.y=-F.vel.y*0.4;F.vel.x*=0.7;F.vel.z*=0.7;}
       else F.vel.multiplyScalar(Math.max(0,1-2*dt)); }
     ball.visible=true; ball.position.copy(F.pos);
-    if(F.t>2.2){ G.foulFly=null; }
+    if(F.catcher){
+      const f=F.catcher, p=f.model.position;
+      const d=V3(F.land.x-p.x,0,F.land.z-p.z), L=d.length();
+      if(L>0.5){ d.normalize(); p.addScaledVector(d,7.5*dt); f.model.lookAt(p.clone().add(d));
+        p.y=Math.abs(Math.sin(performance.now()*0.02))*0.06; }
+      else { p.y=0; const v=V3(-F.vel.x,0,-F.vel.z);
+        if(v.lengthSq()>0.5) f.model.lookAt(p.clone().add(v.normalize())); }
+      const near=Math.hypot(F.pos.x-p.x,F.pos.z-p.z)<1.1;
+      if(!landed&&near&&F.pos.y<2.1&&F.vel.y<0){       // 포구 성공 → 파울 플라이 아웃
+        glovePose(f,F.pos.clone(),F.vel); sfx('mitt');
+        ball.position.copy(p).setY(1.3);
+        foulFlyOut(); return;
+      }
+      if(landed||F.t>2.6){ foulFlyMissed(); return; }  // 놓침 → 평범한 파울
+    }
+    else if(F.t>2.2){ G.foulFly=null; }
   }
   if(G.stealThrow){
     const th=G.stealThrow; th.t+=dt;
