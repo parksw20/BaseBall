@@ -1058,6 +1058,7 @@ function showBanner(text,after,dur=1.4,sub=''){
 }
 function hideBanner(){$('banner').style.display='none';$('bannerSub').style.display='none';}
 function showCall(text,color){ // 진행을 멈추지 않는 실시간 판정 콜
+  if(G.slow&&G.slow.active&&G.slow.judgedT===undefined) G.slow.judgedT=G.slow.t; // 판정 시각 기록
   const el=$('call'); el.textContent=text; el.style.color=color; el.style.display='block';
   G.callT=0.9;
   if(color==='#ff6b6b')sfx('out'); else if(color==='#7ed957')sfx('safe');
@@ -1536,6 +1537,8 @@ function syncRunnerMeshes(){
     G.runners[i]=r; }});
 }
 /* ---- 슬라이딩 & 접전 슬로모션 ---- */
+const CLOSE_CALL=1.0;   // 주자·송구 도착 차이가 이 이내면 "접전"으로 보고 슬로모션
+const SLOW_AFTER=1.0;   // 세이프/아웃 판정이 난 뒤에도 이만큼 더 보여준다 (실시간 초)
 function slidePose(w){ if(!w||w.slideT>0) return;
   w.slideT=0.9; w.model.rotation.x=-1.0; w.model.position.y=0.12; }
 function updateSlide(w,dt){ if(!w||!(w.slideT>0)) return;
@@ -1559,7 +1562,7 @@ function checkCloseCall(basePos,ballEta,runner){
   const rEta=Math.max(0,(runner.model.position.distanceTo(basePos)-0.5)/8.6)
              +((runner.anim&&runner.anim.delay)||0);
   runner.slideAt=basePos.clone();                       // 접전이면 베이스 앞에서 슬라이딩
-  if(Math.abs(rEta-ballEta)<0.2) enterSlowmo(basePos);
+  if(Math.abs(rEta-ballEta)<CLOSE_CALL) enterSlowmo(basePos);
 }
 /* ---- 아웃된 주자: 자기 팀 더그아웃으로 걸어 나간다 (연출 전용, 판정과 무관) ---- */
 const exiters=[];
@@ -1801,7 +1804,7 @@ function updatePlay(dt){
           const rr=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(rr) rr.slideAt=c.to.clone();
           const m=margin(c);
-          if(rr&&m>-90&&Math.abs(m)<0.2&&!G.slowUsed) enterSlowmo(c.to);
+          if(rr&&m>-90&&Math.abs(m)<CLOSE_CALL&&!G.slowUsed) enterSlowmo(c.to);
         }
         ctl.gr={leadOut:false,batterOut:false};
         nextGroundStage(ctl,pl,ball.position.clone(),resp); // 베이스가 가까우면 직접 뛰어가 밟는다
@@ -2457,8 +2460,11 @@ window.renderOnce=()=>renderer.render(scene,camera);
 let last=performance.now();
 function frame(now){
   const raw=Math.min(0.05,(now-last)/1000); last=now;
-  if(G.slow&&G.slow.active){ // 접전 슬로모션: 실시간 2초 후 자동 종료
-    G.slow.t+=raw; if(G.slow.t>2.0) exitSlowmo();
+  if(G.slow&&G.slow.active){ // 접전 슬로모션: 판정 후 1초 더 보여주고 종료 (안전 상한 5초)
+    G.slow.t+=raw;
+    // 판정이 났으면 무조건 1초를 더 채우고 종료 / 판정이 안 나면 6초 안전 상한
+    const done=G.slow.judgedT!==undefined ? (G.slow.t>G.slow.judgedT+SLOW_AFTER) : (G.slow.t>6.0);
+    if(done) exitSlowmo();
   }
   const dt=(G.slow&&G.slow.active)?raw*0.25:raw;
   try{
