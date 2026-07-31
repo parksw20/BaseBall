@@ -396,19 +396,10 @@ const mat=(c,r=0.9)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
     wm.material.side=THREE.DoubleSide;
     wm.rotation.x=-Math.PI/2; wm.scale.y=-1; wm.position.y=0.012; wm.receiveShadow=true; scene.add(wm);
   }
-  // 파울 지역 흙: 파울라인 바깥으로 넓게 (실제 구장처럼 홈 주변이 흙)
-  for(const s of [1,-1]){
-    const f=new THREE.Shape();
-    f.moveTo(s*3,-7); f.lineTo(s*12,-7);
-    f.lineTo(s*33,19); f.lineTo(s*25,28); f.lineTo(s*3,6);
-    const fmz=new THREE.Mesh(new THREE.ShapeGeometry(f),mat(0x9a744e));
-    fmz.material.side=THREE.DoubleSide;
-    fmz.rotation.x=-Math.PI/2; fmz.scale.y=-1; fmz.position.y=0.011; fmz.receiveShadow=true; scene.add(fmz);
-  }
-  // 홈 주변 흙 원(타석·포수 구역)
+  // 홈 주변 흙(타석·포수 구역)만 작게 — 나머지 파울 지역은 잔디
   {
-    const hc=new THREE.Mesh(new THREE.CircleGeometry(7.5,32),mat(0x9a744e));
-    hc.rotation.x=-Math.PI/2; hc.position.set(0,0.015,0.5); hc.receiveShadow=true; scene.add(hc);
+    const hc=new THREE.Mesh(new THREE.CircleGeometry(4.2,32),mat(0x9a744e));
+    hc.rotation.x=-Math.PI/2; hc.position.set(0,0.015,0.3); hc.receiveShadow=true; scene.add(hc);
   }
   // 내야 흙 다이아몬드
   const dia=new THREE.Shape(); dia.moveTo(0,-2);
@@ -508,13 +499,18 @@ const stadium={towers:[],bulbs:[],lights:[]};
   }
   /* 관중석 보울: 홈 뒤에서 양쪽 파울폴까지 하나로 이어지는 그릇 형태.
      내야 쪽은 그라운드에 가깝고, 파울라인을 따라 나갈수록 반경이 커진다(실제 구장 배치). */
-  const bowlInner=t=>{                       // t: 링 각도(180=홈 뒤, 45/315=파울폴)
-    const u=Math.min(1,Math.abs(180-t)/135);  // 0=홈 뒤, 1=파울폴
-    return 14+78*Math.pow(u,1.45);
+  // 관중석 안쪽 경계: 외야는 펜스 바로 뒤, 파울 지역은 파울라인과 나란히, 포수 뒤는 살짝 물러남
+  const bowlInner=t=>{
+    const A=Math.min(t,360-t);                       // 0=중견, 45=파울폴, 180=홈 뒤
+    if(A<=45) return fenceR(A)+6;                    // 홈런 지역 끝에서 조금 떨어져
+    const par=12/Math.sin(A*Math.PI/180-Math.PI/4);  // 파울라인에서 12m 바깥 평행선
+    let r=Math.min(fenceR(45)+6,Math.max(17,par));
+    if(A>150) r+=(A-150)/30*6;                       // 포수 뒤쪽은 움푹 들어가게(뒤로)
+    return r;
   };
   const buildBowl=(depth,h0,h1,offset,matSeat)=>{
     const pos=[],idx=[]; let n=0;
-    for(let t=45;t<=315;t+=3){
+    for(let t=0;t<=360;t+=3){
       const th=D2R(t), rIn=bowlInner(t)+offset, rOut=rIn+depth;
       pos.push(Math.sin(th)*rIn,h0,Math.cos(th)*rIn);
       pos.push(Math.sin(th)*rOut,h1,Math.cos(th)*rOut);
@@ -534,7 +530,7 @@ const stadium={towers:[],bulbs:[],lights:[]};
   // 1층 앞 벽(그라운드와 관중석 경계)
   {
     const pos=[],idx=[]; let n=0;
-    for(let t=45;t<=315;t+=3){
+    for(let t=0;t<=360;t+=3){
       const th=D2R(t), r=bowlInner(t);
       pos.push(Math.sin(th)*r,0,Math.cos(th)*r);
       pos.push(Math.sin(th)*r,1.4,Math.cos(th)*r); n++;
@@ -546,8 +542,7 @@ const stadium={towers:[],bulbs:[],lights:[]};
     grp.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial(
       {color:0x1f4d8a,roughness:0.85,side:THREE.DoubleSide})));
   }
-  const rings=[];
-  rings.push(mkRing(104,122,10,0,-52,104,seatC)); // 외야 블리처
+  const rings=[]; // (외야 블리처는 보울이 대신함)
   // 관중 (인스턴스 박스, 랜덤 컬러)
   const N=2400;
   const crowd=new THREE.InstancedMesh(new THREE.BoxGeometry(0.45,0.6,0.35),
@@ -555,18 +550,11 @@ const stadium={towers:[],bulbs:[],lights:[]};
   const dummy=new THREE.Object3D(), col=new THREE.Color();
   for(let i=0;i<N;i++){
     const t=Math.random();
-    let th,r,y;
-    if(i%5===0){                               // 외야 블리처
-      const ring=rings[0];
-      th=D2R(ring.a0+Math.random()*ring.aLen);
-      r=ring.rIn+(ring.rOut-ring.rIn)*t; y=ring.y0+ring.h*t+0.5;
-    } else {                                   // 보울(홈 뒤~파울폴)
-      const b=bowls[Math.random()<0.62?0:1];
-      const ang=45+Math.random()*270;
-      th=D2R(ang);
-      r=bowlInner(ang)+b.offset+b.depth*t;
-      y=b.h0+(b.h1-b.h0)*t+0.5;
-    }
+    const b=bowls[Math.random()<0.62?0:1];
+    const ang=Math.random()*360;
+    const th=D2R(ang);
+    const r=bowlInner(ang)+b.offset+b.depth*t;
+    const y=b.h0+(b.h1-b.h0)*t+0.5;
     dummy.position.set(r*Math.sin(th),y,r*Math.cos(th));
     dummy.rotation.y=th+Math.PI; dummy.updateMatrix();
     crowd.setMatrixAt(i,dummy.matrix);
