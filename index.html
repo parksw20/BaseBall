@@ -1593,7 +1593,7 @@ function syncRunnerMeshes(){
     G.runners[i]=r; }});
 }
 /* ---- 슬라이딩 & 접전 슬로모션 ---- */
-const CLOSE_CALL=1.0;   // 주자·송구 도착 차이가 이 이내면 "접전"으로 보고 슬로모션
+const CLOSE_CALL=0.3;   // 주자·송구 도착 차이가 이 이내면 "접전"으로 보고 슬로모션
 const SLOW_AFTER=2.0;   // 세이프/아웃 판정이 난 뒤에도 이만큼 더 보여준다 (실시간 초)
 function slidePose(w){ if(!w||w.slideT>0) return;
   w.slideT=0.9; w.model.rotation.x=-1.0; w.model.position.y=0.12; }
