@@ -99,7 +99,8 @@
   #confirmBox .yes{background:#2f7bd6;color:#fff;}
   #confirmBox .no{background:#3a4a5a;color:#dfe9f2;}
   #stealUI{bottom:250px;left:14px;display:none;flex-direction:column;gap:5px;align-items:flex-start;}
-  #stealUI.right{left:auto;right:14px;align-items:flex-end;} /* 타석 반대편에 배치 */
+  #stealUI.right{left:auto;right:14px;align-items:flex-end;} /* 타석 반대편(폴백) */
+  #stealUI.atBox{right:auto;bottom:auto;align-items:center;transform:translate(-50%,-50%);}
   #stealUI button{pointer-events:auto;font-size:13px;padding:5px 12px;background:#20364a;
     color:#cfe;border:1px solid #4a6a8a;border-radius:6px;cursor:pointer;}
   #stealUI button.armed{background:#2f7bd6;color:#fff;border-color:#7fb4e8;}
@@ -759,8 +760,30 @@ const fielders=FIELD_DEF.map(f=>{
     m.parts.armR.rotation.set(-1.25,0,-0.2);
     m.parts.armL.rotation.set(-1.25,0,0.2);
   }
-  return {def:f,home:polar(f[0],f[1]),model:m,label:f[2],state:'idle',target:null};
+  // 글러브(왼손) — 포구 시 이 손으로 잡는 동작을 한다
+  const gl=new THREE.Mesh(new THREE.SphereGeometry(0.1,10,8),mat(0x6b3f1d,0.7));
+  gl.scale.set(1,1.2,0.8); gl.position.y=-0.47; gl.castShadow=true;
+  m.parts.armL.add(gl); m.parts.glove=gl;
+  return {def:f,home:polar(f[0],f[1]),model:m,label:f[2],state:'idle',target:null,
+          restArmL:m.parts.armL.rotation.clone(),catchT:0};
 });
+function nearestFielder(pos){ let b=null,d=1e9;
+  for(const f of fielders){ const t=f.model.position.distanceTo(pos); if(t<d){d=t;b=f;} }
+  return d<4?b:null; }
+function glovePose(f,at){ // 포구 동작: 글러브 낀 왼팔을 공 쪽으로 뻗는다
+  if(!f||!f.model.parts) return;
+  f.catchT=0.55; f.catchAt=at?at.clone():null;
+}
+function updateGlove(f,dt){
+  const aL=f.model.parts&&f.model.parts.armL; if(!aL) return;
+  if(f.catchT>0){
+    f.catchT-=dt;
+    const k=clamp(f.catchT/0.55,0,1);              // 1=포구 순간 → 0=원위치
+    const up=f.catchAt?clamp((f.catchAt.y-0.9)*1.1,-0.5,1.1):0.2;
+    aL.rotation.set(f.restArmL.x-(1.35+up)*k, f.restArmL.y, f.restArmL.z*(1-k)+0.05*k);
+    if(f.catchT<=0) aL.rotation.copy(f.restArmL);
+  }
+}
 const batterModel=makeHumanoid(0xd6b93a,0x555555); attachBat(batterModel);
 batterModel.position.set(1.05,0,0); batterModel.rotation.y=-Math.PI/2; // 우타석 기준 포즈(좌타는 루트 미러)
 const batterRoot=new THREE.Group(); // scale.x=-1로 좌타석 미러링 — 포즈 코드는 우타 기준 그대로
@@ -992,6 +1015,17 @@ function updateStealUI(){ // 도루 작전 버튼 (내 공격 + 앞 베이스 �
     : `<button class="${G.stealPlan&&G.stealPlan.b===b?'armed':''}" onclick="toggleSteal(${b})">`+
       `${G.stealPlan&&G.stealPlan.b===b?'✓ ':''}${label}</button>`).join('');
   el.style.display='flex';
+  placeStealUI(el);
+}
+function placeStealUI(el){ // 비어 있는 반대편 타석 자리에 버튼을 붙인다
+  const W=innerWidth||renderer.domElement.clientWidth, H=innerHeight||renderer.domElement.clientHeight;
+  if(!W||!H||G.camMode!=='bat'){ el.classList.remove('atBox'); return; }
+  const p=V3(-1.05*(G.batSide||1),0,0.2).project(camera); // 반대편(비어 있는) 타석 바닥 지점
+  if(!isFinite(p.x)||!isFinite(p.y)||p.z>1){ el.classList.remove('atBox'); return; }
+  const px=(p.x*0.5+0.5)*W, py=(-p.y*0.5+0.5)*H-30; // 바닥에서 살짝 위
+  el.classList.add('atBox');
+  el.style.left=clamp(px,90,W-90)+'px';
+  el.style.top=clamp(py,80,H-120)+'px';
 }
 /* ---- 폭투(포수 포구 실패) → 그 자리에서 도루 요청 ---- */
 function startWildWindow(){
@@ -1859,6 +1893,7 @@ function updatePlay(dt){
   }
   // 수비수 이동
   for(const f of fielders){
+    updateGlove(f,dt); // 포구 동작 복귀
     if(f.state==='chase'){
       // 뜬공: 실제 궤적으로 예측한 낙하점(포구 높이) — 공식 낙하점만 보면 공 옆에 서게 된다
       const tgt=(pl.outs>0&&pl.launch>3)?(predictLanding()||pl.land)
@@ -1893,6 +1928,7 @@ function updatePlay(dt){
           resp.model.rotation.x=-1.05; resp.model.position.y=0.12; resp.slideT=0.9;
           ball.position.set(resp.model.position.x,0.5,resp.model.position.z+0.8);
         } else ball.position.copy(resp.model.position).setY(1.3);
+        glovePose(resp,ball.position); // 글러브로 포구
         // 뜬공 아웃 확정 → 타자 주자는 즉시 더그아웃으로
         if(pl.outs>0&&G.batterRunner){
           exitToDugout(G.batterRunner.model.position.clone(),true);
@@ -1911,7 +1947,7 @@ function updatePlay(dt){
       }
     } else if(pl.ground){ // 땅볼: 포구 → 포스 베이스로 송구, 주자와 실제 레이스
       if(resp&&resp.model.position.distanceTo(ballSim.pos)<1.1&&ballSim.pos.y<0.7){
-        ballSim.active=false; G.camMode='wide'; resp.state='hold';
+        ballSim.active=false; G.camMode='wide'; resp.state='hold'; glovePose(resp,ballSim.pos);
         const margin=c=>{
           const runner=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(!runner||!runner.anim) return -99; // 이미 베이스 도달 → 던져봤자 세이프
@@ -1981,9 +2017,11 @@ function updatePlay(dt){
     ball.position.y+=Math.sin(Math.PI*k)*1.2;
     if(k>=1){
       if(th.receiver){ // 사람에게 송구 → 받은 수비수가 베이스로 뛰어간다
+        glovePose(th.receiver,th.to);
         ctl.state='carry'; ctl.carryTgt=ctl.throwQueue[0]; ctl.carrier=th.receiver;
         ctl.thrown=null;
       } else if(ctl.throwQueue){ // 땅볼 레이스 판정: 공 도착 시 주자가 아직 못 밟았으면 아웃
+        glovePose(nearestFielder(th.to),th.to); // 베이스 커버가 글러브로 받는다
         const cur=ctl.throwQueue.shift();
         evalForce(ctl,cur.ev);
         nextGroundStage(ctl,pl,th.to.clone(),null); // 릴레이(병살 시도)
@@ -2542,6 +2580,7 @@ function update(dt){
     ball.position.lerpVectors(th.from,th.to,k2);
     ball.position.y+=Math.sin(Math.PI*k2)*1.6;
     if(k2>=1){
+      glovePose(nearestFielder(th.to),th.to); // 베이스에서 글러브로 받기
       const sb=G.stealLive.b, r=G.runners[sb];
       const safe=r&&r.model.position.distanceTo(BASES[sb+1])<=0.6;
       if(safe){ showCall('도루 성공!','#7ed957'); G.bases[sb+1]=true; G.bases[sb]=false; }
