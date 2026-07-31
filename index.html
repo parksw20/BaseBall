@@ -757,6 +757,7 @@ function attachBat(model){
 }
 function setBatterStance(){ // 기본 타격 대기: 리드암이 몸을 가로질러 손이 뒷어깨 앞, 배트는 손에서 위로
   batterModel.rotation.y=-Math.PI/2; batterModel.position.y=0;
+  batterModel.position.z=0; // 교대 연출이 중간에 끊겨도 타석으로 복귀 (홈 뒤에 서 있던 문제)
   batterModel.position.x=1.05+((G.batOff&&G.batOff.x)||0)*0.6*(G.batSide||1);
   batterModel.parts.armR.rotation.set(-0.15,0,-1.57); // 팔: 가슴 앞을 가로질러 포수 쪽으로
   batterModel.parts.armL.rotation.set(-0.15,0,0.9);   // 뒷팔: 앞으로 모아 그립 근처
