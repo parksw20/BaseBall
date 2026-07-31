@@ -49,8 +49,18 @@
     filter:drop-shadow(0 4px 10px rgba(0,0,0,.4));}
   #scoreFlash img.flaglogo.fr{margin-right:0;margin-left:20px;}
   #btnNight.on{background:#2a3f8a;border-color:#8fb4ff;}
-  #btnMute,#btnDebug,#btnNight,#btnAssets,#btnPause,#btnNames{pointer-events:auto;margin-left:10px;background:#20364a;color:#fff;
+  #btnPause,#btnSettings{pointer-events:auto;margin-left:10px;background:#20364a;color:#fff;
     border:1px solid #4a6a8a;border-radius:6px;padding:2px 9px;cursor:pointer;font-size:14px;}
+  /* 설정 패널: 상단 ⚙ 버튼으로 열고 닫는다 */
+  #settingsPanel{position:fixed;top:46px;right:10px;z-index:12;display:none;flex-direction:column;gap:6px;
+    background:rgba(8,14,20,.92);border:1px solid #4a6a8a;border-radius:10px;padding:10px;min-width:190px;}
+  #settingsPanel.open{display:flex;}
+  #settingsPanel .ttl{color:#9fd6ff;font-size:12px;letter-spacing:.06em;padding:0 2px 2px;}
+  #settingsPanel button{pointer-events:auto;display:flex;align-items:center;gap:8px;text-align:left;
+    background:#20364a;color:#dfe9f2;border:1px solid #4a6a8a;border-radius:7px;
+    padding:7px 10px;cursor:pointer;font-size:14px;}
+  #settingsPanel button:hover{border-color:#8fb4ff;}
+  #settingsPanel button.on{background:#2a5a8a;border-color:#8fb4ff;color:#fff;}
   #btnDebug.on{background:#b8862f;border-color:#ffd76b;}
   #btnNames.on,#btnPause.on{background:#2a5a8a;border-color:#8fb4ff;}
   #msg{bottom:10px;left:0;right:0;text-align:center;font-size:14px;color:#d8eaf8;text-shadow:0 1px 3px #000;}
@@ -129,12 +139,16 @@
   <span class="cntGrp">O<span class="cnt" id="cntO"><div></div><div></div></span></span>
   <span id="basesInd"><div id="b2"></div><div id="b1"></div><div id="b3"></div></span>
   <span id="roleInd">⚾ 공격(타자)</span>
-  <button id="btnMute" title="효과음 켜기/끄기">🔊</button>
-  <button id="btnDebug" title="디버그: CPU가 중앙 직구만 던짐">🐞</button>
-  <button id="btnNight" title="야간 경기">🌙</button>
-  <button id="btnAssets" title="내 PC의 선수 사진·로고 연결 (KBO_DB_Builder/output 폴더 선택 — 내 화면에만 표시)">📁</button>
-  <button id="btnNames" title="선수 이름표 켜기/끄기">🏷️</button>
   <button id="btnPause" title="일시정지/재개">⏸</button>
+  <button id="btnSettings" title="설정">⚙</button>
+</div>
+<div id="settingsPanel">
+  <div class="ttl">설정</div>
+  <button id="btnMute" title="효과음 켜기/끄기">🔊 <span>효과음</span></button>
+  <button id="btnNames" title="선수 이름표 켜기/끄기">🏷️ <span>이름표</span></button>
+  <button id="btnNight" title="야간 경기">🌙 <span>야간 경기</span></button>
+  <button id="btnAssets" title="내 PC의 선수 사진·로고 연결 (KBO_DB_Builder/output 폴더 선택 — 내 화면에만 표시)">📁 <span>사진·로고 연결</span></button>
+  <button id="btnDebug" title="디버그: CPU가 중앙 직구만 던짐">🐞 <span>디버그(중앙 직구)</span></button>
 </div>
 <div id="dpad">
   <button class="sp"></button><button data-dk="ArrowUp">▲</button><button class="sp"></button>
@@ -776,11 +790,15 @@ const fielders=FIELD_DEF.map(f=>{
 function nearestFielder(pos){ let b=null,d=1e9;
   for(const f of fielders){ const t=f.model.position.distanceTo(pos); if(t<d){d=t;b=f;} }
   return d<4?b:null; }
-function glovePose(f,at){ // 포구 동작: 공이 오는 정면을 보고 글러브 낀 왼팔을 뻗는다
+function glovePose(f,at,travel){ // 포구 동작: 공이 날아온 방향을 정면으로 보고 글러브를 뻗는다
   if(!f||!f.model.parts) return;
   f.catchT=0.55; f.catchAt=at?at.clone():null;
-  if(at){ const p=f.model.position;
-    f.model.lookAt(V3(at.x,p.y,at.z)); } // 공 쪽을 향해 몸을 돌린다
+  const p=f.model.position;
+  // travel = 공의 진행 방향 → 그 반대(공이 온 쪽)를 바라본다. 없으면 공 위치 기준.
+  let dir=null;
+  if(travel){ const t=V3(travel.x,0,travel.z); if(t.lengthSq()>0.04) dir=t.normalize().multiplyScalar(-1); }
+  if(!dir&&at){ const t=V3(at.x-p.x,0,at.z-p.z); if(t.lengthSq()>0.01) dir=t.normalize(); }
+  if(dir) f.model.lookAt(p.clone().add(dir));
 }
 function updateGlove(f,dt){
   const aL=f.model.parts&&f.model.parts.armL; if(!aL) return;
@@ -1942,6 +1960,7 @@ function updatePlay(dt){
   if(ctl.state==='fly'){
     if(ctl.hrDone){/* hr에서 처리 */}
     else if(pl.outs>0&&pl.launch>3){ // 뜬공/라이너 아웃: 수비수가 실제로 공 옆에 도달해야 포구
+      var incoming=ballSim.vel.clone(); // 포구 직전 공의 진행 방향(포구 후엔 사라짐)
       // 궤적 아래에 제대로 들어간 뒤 잡는다 (예전 1.5m는 공이 옆에 떨어지는 것처럼 보였음)
       const near=resp&&V3(resp.model.position.x-ballSim.pos.x,0,resp.model.position.z-ballSim.pos.z).length()<0.8;
       if((near&&ballSim.pos.y<2.2)||ctl.t>pl.hang+1.6){
@@ -1950,7 +1969,7 @@ function updatePlay(dt){
           resp.model.rotation.x=-1.05; resp.model.position.y=0.12; resp.slideT=0.9;
           ball.position.set(resp.model.position.x,0.5,resp.model.position.z+0.8);
         } else ball.position.copy(resp.model.position).setY(1.3);
-        glovePose(resp,ball.position); // 글러브로 포구
+        glovePose(resp,ball.position,incoming); // 공이 날아온 쪽을 보며 글러브로 포구
         // 뜬공 아웃 확정 → 타자 주자는 즉시 더그아웃으로
         if(pl.outs>0&&G.batterRunner){
           exitToDugout(G.batterRunner.model.position.clone(),true);
@@ -1969,7 +1988,8 @@ function updatePlay(dt){
       }
     } else if(pl.ground){ // 땅볼: 포구 → 포스 베이스로 송구, 주자와 실제 레이스
       if(resp&&resp.model.position.distanceTo(ballSim.pos)<1.1&&ballSim.pos.y<0.7){
-        ballSim.active=false; G.camMode='wide'; resp.state='hold'; glovePose(resp,ballSim.pos);
+        ballSim.active=false; G.camMode='wide'; resp.state='hold';
+        glovePose(resp,ballSim.pos,ballSim.vel); // 굴러온 방향을 마주 본다
         const margin=c=>{
           const runner=c.ev===-1?G.batterRunner:G.runners[c.ev];
           if(!runner||!runner.anim) return -99; // 이미 베이스 도달 → 던져봤자 세이프
@@ -2041,11 +2061,11 @@ function updatePlay(dt){
     ball.position.y+=Math.sin(Math.PI*k)*1.2;
     if(k>=1){
       if(th.receiver){ // 사람에게 송구 → 받은 수비수가 베이스로 뛰어간다
-        glovePose(th.receiver,th.to);
+        glovePose(th.receiver,th.to,th.to.clone().sub(th.from));
         ctl.state='carry'; ctl.carryTgt=ctl.throwQueue[0]; ctl.carrier=th.receiver;
         ctl.thrown=null;
       } else if(ctl.throwQueue){ // 땅볼 레이스 판정: 공 도착 시 주자가 아직 못 밟았으면 아웃
-        glovePose(nearestFielder(th.to),th.to); // 베이스 커버가 글러브로 받는다
+        glovePose(nearestFielder(th.to),th.to,th.to.clone().sub(th.from)); // 커버가 송구 온 쪽을 보며 포구
         const cur=ctl.throwQueue.shift();
         evalForce(ctl,cur.ev);
         nextGroundStage(ctl,pl,th.to.clone(),null); // 릴레이(병살 시도)
@@ -2307,7 +2327,7 @@ function applyAim(cx,cy){ // 마우스 이동·터치 지점 → 조준(타자 �
 }
 addEventListener('pointermove',e=>applyAim(e.clientX,e.clientY));
 addEventListener('pointerdown',e=>{
-  if(e.target.closest&&e.target.closest('button,.roster,#menu'))return; // UI 클릭(버튼·로스터·메뉴)은 게임 입력 아님
+  if(e.target.closest&&e.target.closest('button,.roster,#menu,#settingsPanel'))return; // UI 클릭은 게임 입력 아님
   if(G.slow&&G.slow.active){ exitSlowmo(); return; } // 슬로모션 중 아무 곳이나 = 스킵
   if(G.phase==='gameOver'){location.reload();return;}
   if(G.phase==='menu'||G.paused)return;
@@ -2385,6 +2405,14 @@ $('dpad').querySelectorAll('[data-dk]').forEach(b=>{
 });
 $('btnStart').onclick=startGame;
 $('btnSkipSlow').onclick=()=>{exitSlowmo();sfx('click');};
+$('btnSettings').onclick=()=>{ sfx('click');
+  const open=$('settingsPanel').classList.toggle('open');
+  $('btnSettings').classList.toggle('on',open); };
+addEventListener('pointerdown',e=>{ // 패널 밖을 누르면 닫기
+  if(!$('settingsPanel').classList.contains('open')) return;
+  if(e.target.closest&&e.target.closest('#settingsPanel,#btnSettings')) return;
+  $('settingsPanel').classList.remove('open'); $('btnSettings').classList.remove('on');
+},true);
 $('btnNames').onclick=()=>{
   G.showNames=!G.showNames; sfx('click');
   $('btnNames').classList.toggle('on',G.showNames);
@@ -2612,7 +2640,7 @@ function update(dt){
     ball.position.lerpVectors(th.from,th.to,k2);
     ball.position.y+=Math.sin(Math.PI*k2)*1.6;
     if(k2>=1){
-      glovePose(nearestFielder(th.to),th.to); // 베이스에서 글러브로 받기
+      glovePose(nearestFielder(th.to),th.to,th.to.clone().sub(th.from)); // 포수 송구 온 쪽을 보며 포구
       const sb=G.stealLive.b, r=G.runners[sb];
       const safe=r&&r.model.position.distanceTo(BASES[sb+1])<=0.6;
       if(safe){ showCall('도루 성공!','#7ed957'); G.bases[sb+1]=true; G.bases[sb]=false;
