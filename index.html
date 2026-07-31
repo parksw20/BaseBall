@@ -109,8 +109,8 @@
   #confirmBox .yes{background:#2f7bd6;color:#fff;}
   #confirmBox .no{background:#3a4a5a;color:#dfe9f2;}
   /* 도루 버튼: 타석 반대편 화면 중앙 높이 고정 (하단 카드·라인스코어와 겹치지 않게) */
-  #stealUI{top:48%;bottom:auto;left:24px;display:none;flex-direction:column;gap:6px;align-items:flex-start;}
-  #stealUI.right{left:auto;right:24px;align-items:flex-end;}
+  #stealUI{top:48%;bottom:auto;left:236px;display:none;flex-direction:column;gap:6px;align-items:flex-start;}
+  #stealUI.right{left:auto;right:236px;align-items:flex-end;} /* 좌우 로스터 패널을 피해서 */
   #stealUI button{pointer-events:auto;font-size:13px;padding:5px 12px;background:#20364a;
     color:#cfe;border:1px solid #4a6a8a;border-radius:6px;cursor:pointer;}
   #stealUI button.armed{background:#2f7bd6;color:#fff;border-color:#7fb4e8;}
@@ -385,6 +385,31 @@ const mat=(c,r=0.9)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
   fm.material.side=THREE.DoubleSide;
   fm.rotation.x=-Math.PI/2; fm.scale.y=-1; // Shape y→월드 -z로 뒤집히므로 보정(+z 전방)
   fm.position.y=0.01; fm.receiveShadow=true; scene.add(fm);
+  // 워닝트랙: 펜스 안쪽 흙 띠
+  {
+    const wt=new THREE.Shape(); const inner=[];
+    for(let a=-45;a<=45;a+=3){const r=fenceR(a);
+      wt.lineTo(Math.sin(a*Math.PI/180)*r,Math.cos(a*Math.PI/180)*r);}
+    for(let a=45;a>=-45;a-=3){const r=fenceR(a)-4.5;
+      wt.lineTo(Math.sin(a*Math.PI/180)*r,Math.cos(a*Math.PI/180)*r);}
+    const wm=new THREE.Mesh(new THREE.ShapeGeometry(wt),mat(0x9a744e));
+    wm.material.side=THREE.DoubleSide;
+    wm.rotation.x=-Math.PI/2; wm.scale.y=-1; wm.position.y=0.012; wm.receiveShadow=true; scene.add(wm);
+  }
+  // 파울 지역 흙: 파울라인 바깥으로 넓게 (실제 구장처럼 홈 주변이 흙)
+  for(const s of [1,-1]){
+    const f=new THREE.Shape();
+    f.moveTo(s*3,-7); f.lineTo(s*12,-7);
+    f.lineTo(s*33,19); f.lineTo(s*25,28); f.lineTo(s*3,6);
+    const fmz=new THREE.Mesh(new THREE.ShapeGeometry(f),mat(0x9a744e));
+    fmz.material.side=THREE.DoubleSide;
+    fmz.rotation.x=-Math.PI/2; fmz.scale.y=-1; fmz.position.y=0.011; fmz.receiveShadow=true; scene.add(fmz);
+  }
+  // 홈 주변 흙 원(타석·포수 구역)
+  {
+    const hc=new THREE.Mesh(new THREE.CircleGeometry(7.5,32),mat(0x9a744e));
+    hc.rotation.x=-Math.PI/2; hc.position.set(0,0.015,0.5); hc.receiveShadow=true; scene.add(hc);
+  }
   // 내야 흙 다이아몬드
   const dia=new THREE.Shape(); dia.moveTo(0,-2);
   dia.lineTo(22,20); dia.lineTo(0,42); dia.lineTo(-22,20); dia.lineTo(0,-2);
@@ -439,6 +464,16 @@ const mat=(c,r=0.9)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
     const top=new THREE.Mesh(new THREE.PlaneGeometry(w,0.2),new THREE.MeshBasicMaterial({color:0xffe36b,side:THREE.DoubleSide}));
     top.position.copy(seg.position).setY(3.05); top.lookAt(V3(0,3.05,0)); fenceGrp.add(top);
   }
+  // 파울폴 (좌우 폴대 + 그물)
+  for(const s of [1,-1]){
+    const r=fenceR(45), p=polar(s*45,r);
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,17,10),
+      new THREE.MeshStandardMaterial({color:0xffd21e,roughness:0.6}));
+    pole.position.set(p.x,8.5,p.z); fenceGrp.add(pole);
+    const net=new THREE.Mesh(new THREE.PlaneGeometry(2.6,14),
+      new THREE.MeshStandardMaterial({color:0xffe36b,transparent:true,opacity:0.35,side:THREE.DoubleSide}));
+    net.position.set(p.x-s*1.3,9,p.z); net.lookAt(V3(0,9,p.z)); fenceGrp.add(net);
+  }
   scene.add(fenceGrp);
 }
 /* ---- 구장 구조물: 관중석·전광판·조명탑 ---- */
@@ -471,22 +506,68 @@ const stadium={towers:[],bulbs:[],lights:[]};
       new THREE.MeshStandardMaterial({map:wallTex,side:THREE.DoubleSide,roughness:0.9}));
     wall.position.y=1.1; grp.add(wall);
   }
-  // 내야 그랜드스탠드(30% 당김, 관중 없음) + 외야 블리처
+  /* 관중석 보울: 홈 뒤에서 양쪽 파울폴까지 하나로 이어지는 그릇 형태.
+     내야 쪽은 그라운드에 가깝고, 파울라인을 따라 나갈수록 반경이 커진다(실제 구장 배치). */
+  const bowlInner=t=>{                       // t: 링 각도(180=홈 뒤, 45/315=파울폴)
+    const u=Math.min(1,Math.abs(180-t)/135);  // 0=홈 뒤, 1=파울폴
+    return 14+78*Math.pow(u,1.45);
+  };
+  const buildBowl=(depth,h0,h1,offset,matSeat)=>{
+    const pos=[],idx=[]; let n=0;
+    for(let t=45;t<=315;t+=3){
+      const th=D2R(t), rIn=bowlInner(t)+offset, rOut=rIn+depth;
+      pos.push(Math.sin(th)*rIn,h0,Math.cos(th)*rIn);
+      pos.push(Math.sin(th)*rOut,h1,Math.cos(th)*rOut);
+      n++;
+    }
+    for(let i=0;i<n-1;i++){ const a=i*2,b=i*2+1,c=(i+1)*2,d=(i+1)*2+1;
+      idx.push(a,b,c, b,d,c); }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setIndex(idx); g.computeVertexNormals();
+    const m=new THREE.Mesh(g,matSeat); m.receiveShadow=true; grp.add(m);
+    return {depth,h0,h1,offset};
+  };
+  const bowls=[];
+  bowls.push(buildBowl(26,1.4,10.5,0,seatA));    // 1층 (그라운드 레벨 → 위로)
+  bowls.push(buildBowl(20,12.0,19.5,28,seatB));  // 2층
+  // 1층 앞 벽(그라운드와 관중석 경계)
+  {
+    const pos=[],idx=[]; let n=0;
+    for(let t=45;t<=315;t+=3){
+      const th=D2R(t), r=bowlInner(t);
+      pos.push(Math.sin(th)*r,0,Math.cos(th)*r);
+      pos.push(Math.sin(th)*r,1.4,Math.cos(th)*r); n++;
+    }
+    for(let i=0;i<n-1;i++){ const a=i*2,b=i*2+1,c=(i+1)*2,d=(i+1)*2+1; idx.push(a,b,c,b,d,c); }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setIndex(idx); g.computeVertexNormals();
+    grp.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial(
+      {color:0x1f4d8a,roughness:0.85,side:THREE.DoubleSide})));
+  }
   const rings=[];
-  rings.push(mkRing(13,21,8,2.3,100,160,seatA));
-  rings.push(mkRing(21.7,27.3,7,10.3,100,160,seatB));
-  rings.push(mkRing(104,122,10,0,-52,104,seatC));
+  rings.push(mkRing(104,122,10,0,-52,104,seatC)); // 외야 블리처
   // 관중 (인스턴스 박스, 랜덤 컬러)
-  const N=1200;
+  const N=2400;
   const crowd=new THREE.InstancedMesh(new THREE.BoxGeometry(0.45,0.6,0.35),
     new THREE.MeshLambertMaterial(),N);
   const dummy=new THREE.Object3D(), col=new THREE.Color();
   for(let i=0;i<N;i++){
-    const ring=rings[2]; // 관중은 외야 블리처에만 (홈 뒤는 비움)
     const t=Math.random();
-    const th=D2R(ring.a0+Math.random()*ring.aLen);
-    const r=ring.rIn+(ring.rOut-ring.rIn)*t;
-    dummy.position.set(r*Math.sin(th),ring.y0+ring.h*t+0.5,r*Math.cos(th));
+    let th,r,y;
+    if(i%5===0){                               // 외야 블리처
+      const ring=rings[0];
+      th=D2R(ring.a0+Math.random()*ring.aLen);
+      r=ring.rIn+(ring.rOut-ring.rIn)*t; y=ring.y0+ring.h*t+0.5;
+    } else {                                   // 보울(홈 뒤~파울폴)
+      const b=bowls[Math.random()<0.62?0:1];
+      const ang=45+Math.random()*270;
+      th=D2R(ang);
+      r=bowlInner(ang)+b.offset+b.depth*t;
+      y=b.h0+(b.h1-b.h0)*t+0.5;
+    }
+    dummy.position.set(r*Math.sin(th),y,r*Math.cos(th));
     dummy.rotation.y=th+Math.PI; dummy.updateMatrix();
     crowd.setMatrixAt(i,dummy.matrix);
     crowd.setColorAt(i,col.setHSL(Math.random(),0.55,0.35+Math.random()*0.35));
@@ -736,7 +817,7 @@ function updateNameTags(){ // 매 프레임: 머리 위 추종 + 화면비 보�
     const vis=show&&n.model.visible;
     n.sp.visible=vis; if(!vis) continue;
     // 수비=머리 위 / 공격(주자)=발 아래 (앵커가 방향을 보장, 여기선 기준 높이만 지정)
-    n.sp.position.set(n.model.position.x,n.model.position.y+(n.below?0.12:2.1),n.model.position.z);
+    n.sp.position.set(n.model.position.x,n.model.position.y+(n.below?-0.45:2.1),n.model.position.z);
     n.sp.scale.set(TAG_H*ratio,TAG_H,1);
   }
 }
@@ -1324,6 +1405,10 @@ function releaseStrayRunners(){ // 어디에도 속하지 않은 채 보이는 �
 }
 function startBatterSwap(){ // 아웃된 타자는 더그아웃으로, 새 타자가 걸어 들어온다
   clearSwapAnim();    // 이전 교대가 끝나기 전에 새 교대가 시작되는 경우
+  // 주루 중 아웃(땅볼·뜬공 등)은 연출 없이 다음 타자가 이미 타석에 서 있게 한다
+  if(!G.swapWalk){ G.batterExited=false; batterModel.position.set(1.05,0,0);
+    batterModel.rotation.set(0,-Math.PI/2,0); setBatterStance(); return; }
+  G.swapWalk=false;
   const d=G.top?-1:1; // 어웨이(선공)=1루측(-x), 홈=3루측(+x) 더그아웃
   // 이미 주자로 뛰다가 아웃돼 더그아웃으로 걸어가는 중이면 타석 퇴장 연출은 생략 (두 명이 나가 보이던 문제)
   const skipOut=G.batterExited; G.batterExited=false;
@@ -1523,7 +1608,7 @@ function addStrike(label){
   if(G.debugCenter){ // 디버그: 카운트·판정 없이 다음 투구
     G.phase='banner'; G.bannerT=0.5; G.afterBanner=toPrePitch; return; }
   G.strikes++; refreshHUD();
-  if(G.strikes>=3){recordOut();refreshHUD();G.pendingSwap=true;
+  if(G.strikes>=3){recordOut();refreshHUD();G.pendingSwap=true;G.swapWalk=true; // 타석에서 아웃 → 교체 연출
     showBanner('삼진 아웃!',()=>{newBatter();nextAfterPitch();});}
   else showBanner(label,toPrePitch,0.9);
 }
@@ -1848,6 +1933,10 @@ function updateRunners(dt){
 
 /* ---- 땅볼 송구/판정 ---- */
 const WINDUP=0.30; // 포구→송구 릴리스 시간 (기존 0.15의 2배)
+function throwArc(th,scale){ // 짧은 송구는 낮고 빠르게, 먼 송구만 크게 띄운다
+  const d=th.from.distanceTo(th.to);
+  return clamp(d*0.045,0.12,2.2)*(scale||1);
+}
 const windupOf=ctl=>{ ctl.throwsMade=(ctl.throwsMade||0)+1; // 병살 턴 등 릴레이는 퀵 릴리스
   return ctl.throwsMade>1?WINDUP*0.5:WINDUP; };
 function startThrow(ctl,from){
@@ -2037,7 +2126,7 @@ function updatePlay(dt){
     else th.t+=dt;
     const k=Math.min(1,th.t/th.dur);
     ball.position.lerpVectors(th.from,th.to,k);
-    ball.position.y+=Math.sin(Math.PI*k)*1.4;
+    ball.position.y+=Math.sin(Math.PI*k)*throwArc(th);
     const p=d.r.model.position, dir=V3(d.tb.x-p.x,0,d.tb.z-p.z), distR=dir.length();
     if(distR>0.15){ dir.normalize(); p.addScaledVector(dir,8.6*dt); d.r.model.lookAt(p.clone().add(dir)); }
     if(k>=1){
@@ -2058,7 +2147,7 @@ function updatePlay(dt){
     } else th.t+=dt;
     const k=Math.min(1,th.t/th.dur);
     ball.position.lerpVectors(th.from,th.to,k);
-    ball.position.y+=Math.sin(Math.PI*k)*1.2;
+    ball.position.y+=Math.sin(Math.PI*k)*throwArc(th);
     if(k>=1){
       if(th.receiver){ // 사람에게 송구 → 받은 수비수가 베이스로 뛰어간다
         glovePose(th.receiver,th.to,th.to.clone().sub(th.from));
@@ -2077,7 +2166,7 @@ function updatePlay(dt){
     else th.t+=dt;
     const k=Math.min(1,th.t/th.dur);
     ball.position.lerpVectors(th.from,th.to,k);
-    ball.position.y+=Math.sin(Math.PI*k)*2.2;
+    ball.position.y+=Math.sin(Math.PI*k)*throwArc(th,1.4);
     if(k>=1){
       if(th.receiver){ // 커버 수비수 없음 → 받은 수비수가 베이스로 뛰어간다
         ctl.state='hitCarry'; ctl.carrier=th.receiver; ctl.carryStIdx=th.stIdx;
