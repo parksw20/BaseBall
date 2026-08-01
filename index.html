@@ -894,6 +894,33 @@ function readyPose(f,k,ballY){ // 공이 다가오는 동안 미리 글러브를
   f.readyK=Math.max(f.readyK||0,clamp(k,0,1)); f.readyY=ballY;
   armsReach(f,f.readyK,ballY);
 }
+/* ---- 투구 동작: 와인드업(팔을 뒤로) → 릴리스 → 팔로스루 ---- */
+function pitcherModel(){ return fielders.find(f=>f.label==='P'); }
+function pitchPose(f,wind,follow){
+  const P=f.model.parts; if(!P||!f.restArmR) return;
+  const aR=P.armR, aL=P.armL, lg=P.legL;
+  // 와인드업: 던지는 팔을 위/뒤로, 글러브 팔은 앞으로 / 팔로스루: 팔이 앞으로 내려옴
+  const back=wind*2.3, fwd=follow*2.6;
+  aR.rotation.set(f.restArmR.x-back+fwd, f.restArmR.y, f.restArmR.z*(1-wind*0.8));
+  aL.rotation.set(f.restArmL.x-wind*1.1-follow*0.3, f.restArmL.y, f.restArmL.z*(1-wind*0.5));
+  if(lg) lg.rotation.x=-wind*0.5+follow*0.25;              // 앞다리 들었다 내딛기
+  // 주의: model.rotation.z를 직접 쓰면 lookAt이 만든 오일러 표현과 충돌해 모델이 뒤집힌다 → 몸통만 기울인다
+  if(P.torso) P.torso.rotation.z=(wind*0.18-follow*0.14)*(f.throwSide||1);
+}
+function updatePitchAnim(f,dt){
+  if(!f) return;
+  if(f.pitchT>0){                                   // 릴리스 후 팔로스루
+    f.pitchT-=dt;
+    const k=1-clamp(f.pitchT/0.55,0,1);
+    pitchPose(f,Math.max(0,1-k*2.2),Math.min(1,k*1.6));
+    if(f.pitchT<=0){ f.windK=0; pitchPose(f,0,0); }
+    return;
+  }
+  const want=f.windWant||0;                         // 차지/CPU 대기 동안 서서히 감아올림
+  f.windK=(f.windK||0)+(want-(f.windK||0))*Math.min(1,dt*6);
+  if(f.windK>0.01||want>0) pitchPose(f,f.windK,0);
+  f.windWant=0;
+}
 function updateGlove(f,dt){
   const P=f.model.parts, aL=P&&P.armL; if(!aL) return;
   if(f.catchT>0){
@@ -1532,6 +1559,8 @@ function throwPitch(power,tx,ty,curPxX,curPxY){
   G.pitch={tx,ty,cx,cy,brk,rx,t:0,dur,power,arc:0.4*(1-0.45*power),done:false,
            speedKmh:Math.round(speed*3.6*1.15)};
   G.foulFly=null; G.cpuSwingShown=false; // 이전 파울 연출 종료 / CPU 스윙 모션 재무장
+  { const pf=pitcherModel(); if(pf){ pf.throwSide=(pinfo&&pinfo.throws==='좌')?-1:1;
+      pf.pitchT=0.55; } }                 // 릴리스 → 팔로스루 시작
   G.phase='ballFlight'; ball.visible=true; blob.visible=true;
   { // 최종 도달점·판정을 미리 계산해 예고 링 세팅
     const fin=pitchPosAt(G.pitch,1), R2=0.11;
@@ -2683,6 +2712,16 @@ function update(dt){
   // 예약된 접전 슬로모션: 판정 SLOW_BEFORE초 전에 진입
   if(G.slowPending&&G.clock>=G.slowPending.at){ const b=G.slowPending.base; G.slowPending=null; enterSlowmo(b); }
   for(const f of fielders) updateGlove(f,dt); // 포구 동작은 인플레이 밖(도루 저지·파울 플라이)에서도 재생
+  { // 투구 동작: 차지(플레이어) 또는 CPU 대기 시간 동안 와인드업
+    const pf=pitcherModel();
+    if(pf&&!(pf.catchT>0)){
+      if(G.phase==='prePitch'&&!G.swapAnim){
+        if(!G.playerBatting&&G.charging) pf.windWant=clamp(G.chargeT/CHARGE_MAX,0,1);
+        else if(G.playerBatting) pf.windWant=clamp((0.7-G.cpuWindup)/0.7,0,1);
+      }
+      updatePitchAnim(pf,dt);
+    }
+  }
   updateExiters(dt); // 아웃된 주자 더그아웃 퇴장 (플레이 종료 후에도 계속 걸어간다)
   for(const r of runnerPool) updateSlide(r,dt); // 슬라이딩 자세 복구 (모든 주자는 풀에서 나온다)
   // 존 판정 유예(늦은 스윙 인정) 타이머
