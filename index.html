@@ -1301,7 +1301,9 @@ function renderLineScore(){ // 우하단 이닝별 득점(라인스코어)
     for(let i2=0;i2<n;i2++){
       const v=G.score[s][i2];
       const cur=(i2===G.inning-1&&((s===0)===G.top))?' class="cur"':'';
-      h+=`<td${cur}>${v===undefined?'-':v}</td>`;
+      // 아직 치지 않은 회는 비워 둔다 (초 진행 중이면 그 회의 말 점수는 표시하지 않음)
+      const notYet=(s===1&&i2===G.inning-1&&G.top);
+      h+=`<td${cur}>${(v===undefined||notYet)?'-':v}</td>`;
     }
     h+=`<td class="tot">${totalScore(s)}</td></tr>`;
   });
