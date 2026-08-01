@@ -1584,7 +1584,8 @@ function pitchArrives(){
     const bdist=Math.hypot(G.batPos.x-fin.x,G.batPos.y-fin.y);
     G.buntStance=false; G.batHold=false; setBuntPose(false);
     if(bdist<=contactDist()*0.9){
-      const deg=clamp((fin.x-G.batPos.x)*40+rand(-25,25),-40,40);
+      // 스윙과 같은 부호(배트가 공보다 오른쪽=우측 방향), 조준이 실제로 먹히도록 민감도↑·산포↓
+      const deg=clamp((G.batPos.x-fin.x)*75+rand(-8,8),-40,40);
       setMsg('번트!'); sfx('hit');
       startPlay(judgePlay(deg,rand(-3,5),rand(7,13)),fin); // 약한 땅볼 인플레이
     } else addStrike('번트 실패! 스트라이크');
