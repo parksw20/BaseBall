@@ -1107,7 +1107,7 @@ function updateBatterCard(){
   else pi.style.display='none';
   const fk2=G.top?'cpu':'my';
   const pc=(G.pitchCount&&G.pitchCount[fk2])||0;
-  const cond2=Math.max(0.6,1-0.4*pc/100);
+  const cond2=pitcherCond(fk2);
   document.getElementById('pitTxt').innerHTML=
     p?`투수 <b>${p.name}</b> OVR ${p.Overall} · ERA ${p.ERA||'-'}`+
       `<br>구속 ${p.Fastball} · 제구 ${p.Control} · 변화 ${p.BreakingBall}`+
@@ -1243,6 +1243,12 @@ window.swapPitcher=(side,idx)=>{ // 불펜 클릭 → 게임 내 컨펌 → 교�
 function contactDist(){const b=curBatterInfo();return CONTACT_DIST*(b?0.8+b.Contact*0.004:1);}   // 타격율→접촉 반경
 function swingWindow(){const b=curBatterInfo();return SWING_WINDOW*(b?0.85+b.Contact*0.003:1);}   // 타격율→타이밍 창
 function curveCap(){const p=curPitcherInfo();return p?0.55+p.BreakingBall*0.008:1;}               // 변화구→최대 브레이크
+// 컨디션 기준 투구수: 경기 이닝 수에 비례 (9이닝=100구 기준 → 3이닝이면 33구에 60%)
+function pitchBudget(){ return Math.max(15,Math.round(100*(G.innings||9)/9)); }
+function pitcherCond(side){ // side: 'my'|'cpu'
+  const pc=(G.pitchCount&&G.pitchCount[side])||0;
+  return Math.max(0.6,1-0.4*pc/pitchBudget());
+}
 function addRun(n,silent){const s=G.top?0:1;G.score[s][G.inning-1]=(G.score[s][G.inning-1]||0)+n;
   if(!silent)scoreFlash(n);}
 function ensureCell(){for(const s of G.score){if(s[G.inning-1]===undefined)s[G.inning-1]=0;}}
@@ -1403,8 +1409,8 @@ function toPrePitch(){
   G.swapOutSide=G.batSide; // 퇴장 연출은 "직전 타자"의 타석 기준 (순간이동 방지)
   G.stealLive=null; G.stealThrow=null; G.stealFrom=-1; G.judgeT=0; G.judgeFin=null;
   G.slowUsed=false; G.slowPending=null; exitSlowmo(); // 접전 슬로모션은 타석마다 1회
-  // CPU 투수 자동 교체 (투구수 100+ 시 불펜 투입)
-  if(G.top&&G.kbo&&G.pitchCount&&G.pitchCount.cpu>100&&G.bullpen&&G.bullpen.cpu.length){
+  // CPU 투수 자동 교체 (기준 투구수를 넘기면 불펜 투입 — 경기 이닝 수에 비례)
+  if(G.top&&G.kbo&&G.pitchCount&&G.pitchCount.cpu>pitchBudget()&&G.bullpen&&G.bullpen.cpu.length){
     G.pitcherIdx.cpu=G.bullpen.cpu.shift(); G.pitchCount.cpu=0; renderRosters();
   }
   // 좌타/우타 배치: 좌타=-1(1루측), 우타=+1(3루측), 양타=투수 반대손
@@ -1542,7 +1548,7 @@ function throwPitch(power,tx,ty,curPxX,curPxY){
   // 제구(Control)×컨디션(투구수) → 릴리스 순간 목표점 흔들림 (100구에 60%까지 저하)
   const fk=G.top?'cpu':'my';
   if(G.pitchCount) G.pitchCount[fk]++;
-  const cond=Math.max(0.6,1-0.4*((G.pitchCount&&G.pitchCount[fk])||0)/100);
+  const cond=pitcherCond(fk);
   const jit=G.debugCenter?0:(105-(pinfo?pinfo.Control:70)*cond)*0.0032; // 디버그=무흔들림
   tx+=rand(-jit,jit); ty+=rand(-jit,jit);
   // 도루 작전: 투구와 동시에 스타트
@@ -2778,7 +2784,7 @@ function update(dt){
       // CPU 투수 능력치: Control=존 공략률·제구 흔들림, Fastball은 throwPitch에서 구속 반영
       const pinfo=curPitcherInfo();
       const ctlR=pinfo?pinfo.Control:70;
-      const cond=Math.max(0.6,1-0.4*((G.pitchCount&&G.pitchCount.cpu)||0)/100);
+      const cond=pitcherCond('cpu');
       const inZ=Math.random()<clamp(0.48+ctlR*0.0024,0.5,0.75)*(0.55+0.45*cond);
       const sp=clamp(1.5-ctlR*0.011,0.5,1.1); // 제구 나쁠수록 존 밖 산포 큼
       const tx=inZ?rand(ZONE.x0+0.06,ZONE.x1-0.06):rand(ZONE.x0-0.18*sp,ZONE.x1+0.18*sp);
