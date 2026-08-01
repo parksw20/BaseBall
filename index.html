@@ -1562,7 +1562,20 @@ function throwPitch(power,tx,ty,curPxX,curPxY){
     G.stealPlan=null; updateStealUI();
   }
   const rx=(pinfo&&pinfo.throws==='좌')?-0.35:0.35; // 좌투=1루측, 우투=3루측 릴리스
-  G.pitch={tx,ty,cx,cy,brk,rx,t:0,dur,power,arc:0.4*(1-0.45*power),done:false,
+  // 중력을 거스르지 않게: 릴리스 높이보다 위로 솟는 궤적이면 위로 띄우는 성분을 줄인다
+  let arc=0.4*(1-0.45*power), cyU=cy;
+  const yAt=t=>RELEASE.y+(ty-RELEASE.y)*t+Math.sin(Math.PI*t)*arc+cyU*Math.pow(t,brk);
+  const badLift=()=>{ // 릴리스보다 높이 솟거나, 비행 중 다시 올라가면 부자연스럽다
+    let prev=RELEASE.y;
+    for(let t=0.04;t<=1.0001;t+=0.04){
+      const y=yAt(t);
+      if(y>RELEASE.y-0.02||y>prev+0.004) return true;
+      prev=y;
+    } return false; };
+  for(let g=0; g<20 && badLift() && (arc>0.005||cyU>0.005); g++){
+    arc*=0.7; if(cyU>0) cyU*=0.7;
+  }
+  G.pitch={tx,ty,cx,cy:cyU,brk,rx,t:0,dur,power,arc,done:false,
            speedKmh:Math.round(speed*3.6*1.15)};
   G.foulFly=null; G.cpuSwingShown=false; // 이전 파울 연출 종료 / CPU 스윙 모션 재무장
   { const pf=pitcherModel(); if(pf){ pf.throwSide=(pinfo&&pinfo.throws==='좌')?-1:1;
@@ -2525,7 +2538,8 @@ function applyAim(cx,cy){ // 마우스 이동·터치 지점 → 조준(타자 �
     G.batPos.x=clamp(p.x,HIT.x0+G.batOff.x,HIT.x1+G.batOff.x);
     G.batPos.y=clamp(p.y,HIT.y0+G.batOff.y,HIT.y1+G.batOff.y);
   } else if(G.charging){
-    G.dragPlane={x:clamp(p.x,-2.2,2.2),y:clamp(p.y,0.05,2.4)}; // 커브 라인은 포인터를 따라간다
+    // 커브 목표점도 조준과 같은 범위로 제한 (드래그가 존에서 너무 멀리 벗어나지 않게)
+    G.dragPlane={x:clamp(p.x,ZONE.x0-0.5,ZONE.x1+0.5),y:clamp(p.y,ZONE.y0-0.45,ZONE.y1+0.45)};
   } else {
     G.aimPlane.x=clamp(p.x,ZONE.x0-0.5,ZONE.x1+0.5);
     G.aimPlane.y=clamp(p.y,ZONE.y0-0.45,ZONE.y1+0.45);
