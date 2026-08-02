@@ -148,6 +148,7 @@
   <button id="btnNames" title="선수 이름표 켜기/끄기">🏷️ <span>이름표</span></button>
   <button id="btnNight" title="야간 경기">🌙 <span>야간 경기</span></button>
   <button id="btnAssets" title="내 PC의 선수 사진·로고 연결 (KBO_DB_Builder/output 폴더 선택 — 내 화면에만 표시)">📁 <span>사진·로고 연결</span></button>
+  <button id="btnPitchSpeed" title="공이 날아오는 속도만 느리게 (표기 구속은 그대로)">🐢 <span>투구 속도: 보통</span></button>
   <button id="btnDebug" title="디버그: CPU가 중앙 직구만 던짐">🐞 <span>디버그(중앙 직구)</span></button>
 </div>
 <div id="dpad">
@@ -312,6 +313,8 @@ const V3=(x,y,z)=>new THREE.Vector3(x,y,z);
 
 /* ================== 상수 (미터) ================== */
 const CHARGE_MAX=0.75; // 힘 게이지 최대까지 걸리는 시간 (기존 1.5초의 2배 속도)
+// 화면상 투구 속도 옵션 (표기 구속·판정은 그대로, 날아오는 시간만 늘림)
+const PITCH_SPEEDS=[{n:'보통',f:1},{n:'느림',f:0.65},{n:'매우 느림',f:0.45}];
 const ZONE={x0:-0.30,x1:0.30,y0:0.50,y1:1.10};           // 스트라이크 존 (플레이어 배려로 축소)
 const HIT={x0:-0.85,x1:0.85,y0:0.15,y1:1.6};             // 배트 도달 영역
 const RELEASE=V3(-0.25,1.72,16.8); // 투수 앞쪽(던지는 팔)에서 릴리스
@@ -1544,7 +1547,8 @@ function throwPitch(power,tx,ty,curPxX,curPxY){
   clearTrail();
   const pinfo=curPitcherInfo(); // 투수 Fastball 능력치 → 구속 보정
   const speed=(19+15*power)*(pinfo?0.92+pinfo.Fastball*0.0013:1);
-  const dur=RELEASE.z/(speed*0.8); // 체감 비행은 20% 느리게 (표기 구속은 유지)
+  // 체감 비행은 20% 느리게 + 옵션(보통/느림/매우 느림)만큼 추가로 느리게 — 표기 구속은 그대로
+  const dur=RELEASE.z/(speed*0.8*PITCH_SPEEDS[G.pitchSpeedIdx||0].f);
   // 제구(Control)×컨디션(투구수) → 릴리스 순간 목표점 흔들림 (100구에 60%까지 저하)
   const fk=G.top?'cpu':'my';
   if(G.pitchCount) G.pitchCount[fk]++;
@@ -2655,6 +2659,14 @@ function applyNightUI(){
 $('btnNight').onclick=()=>{
   setNight(!G.night); G.nightAuto=true; // 수동 조작 후에는 자동 전환하지 않음
   applyNightUI();
+  sfx('click');
+};
+$('btnPitchSpeed').onclick=()=>{
+  G.pitchSpeedIdx=((G.pitchSpeedIdx||0)+1)%PITCH_SPEEDS.length;
+  const s=PITCH_SPEEDS[G.pitchSpeedIdx];
+  $('btnPitchSpeed').innerHTML=`🐢 <span>투구 속도: ${s.n}</span>`;
+  $('btnPitchSpeed').classList.toggle('on',G.pitchSpeedIdx>0);
+  setMsg(`투구 속도: ${s.n} (표기 구속은 그대로)`);
   sfx('click');
 };
 $('btnDebug').onclick=()=>{
