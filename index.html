@@ -259,6 +259,22 @@ function sfx(type){
       g.gain.exponentialRampToValueAtTime(0.001,t0+1.5);
       s.connect(f); f.connect(g); g.connect(out); s.start(t0); s.stop(t0+1.5);
       break; }
+    case 'fanfare':{ // 회초 시작 팡파르 (따라라단~ 따라)
+      const notes=[[392,0,0.12],[523,0.12,0.12],[659,0.24,0.12],[784,0.36,0.22],
+                   [659,0.62,0.12],[784,0.74,0.40]];
+      for(const [fr,at,du] of notes){
+        for(const [w,g0,det] of [['square',0.16,0],['triangle',0.12,0.6]]){
+          const o=AC.createOscillator(); o.type=w;
+          o.frequency.setValueAtTime(fr,t0+at); o.detune.value=det;
+          const g=AC.createGain();
+          g.gain.setValueAtTime(0.0001,t0+at);
+          g.gain.exponentialRampToValueAtTime(g0,t0+at+0.02);
+          g.gain.setValueAtTime(g0,t0+at+du*0.6);
+          g.gain.exponentialRampToValueAtTime(0.0001,t0+at+du);
+          o.connect(g); g.connect(out); o.start(t0+at); o.stop(t0+at+du+0.02);
+        }
+      }
+      break; }
     case 'clap':{ // 득점 박수: 짧은 노이즈 버스트를 흩뿌려 관중 박수처럼
       for(let i=0;i<18;i++){
         const d=i*0.052+rand(0,0.035);
@@ -1400,7 +1416,7 @@ function startGame(){
   $('btnNames').classList.toggle('on',G.showNames); // 기본 켜짐 상태를 버튼에도 반영
   if(G.showNames){ refreshNameTags(); applyNameTagVisibility(); }
   G.camMode='bat'; // 이닝 전환과 동일하게: 타석 시점에서 "1회 초" 배너 후 시작
-  refreshHUD();
+  refreshHUD(); sfx('fanfare');
   showBanner(`${G.inning}회 초`,toPrePitch,1.5);
 }
 function toPrePitch(){
@@ -1496,6 +1512,8 @@ function newBatter(advance=true){
 }
 function recordOut(n=1){G.outs=Math.min(3,G.outs+n);}
 function nextAfterPitch(){ if(G.outs>=3){switchSides();} else toPrePitch(); }
+const EXTRA_MAX=2;                       // 연장은 정규 이닝 +2회까지 (9회 경기 → 11회)
+function lastInning(){ return G.innings+EXTRA_MAX; }
 function switchSides(){
   G.outs=0; G.bases=[false,false,false]; G.baseNames=[null,null,null];
   while(exiters.length){ const e=exiters.pop(); clearNameTag(e.w.model);
@@ -1510,12 +1528,14 @@ function switchSides(){
     showBanner(`${G.inning}회 말`,toPrePitch,1.5);
   } else {
     if(G.inning>=G.innings&&aw!==hm) return gameOver();
+    if(G.inning>=lastInning()) return gameOver(); // 연장 한계까지 동점 → 무승부
     G.inning++; G.top=true; ensureCell();
     // 경기 중반을 넘어가면 야간 경기로 전환 (한 번만, 수동 조작 전에만)
     if(!G.night&&!G.nightAuto&&G.inning>G.innings/2){
       G.nightAuto=true; setNight(true); applyNightUI();
     }
     G.camMode='bat'; // 다음 역할(타자) 시점
+    sfx('fanfare');  // 회초 시작 팡파르
     showBanner(`${G.inning}회 초`,toPrePitch,1.5);
   }
   refreshHUD();
