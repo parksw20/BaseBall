@@ -49,11 +49,15 @@
     filter:drop-shadow(0 4px 10px rgba(0,0,0,.4));}
   #scoreFlash img.flaglogo.fr{margin-right:0;margin-left:20px;}
   #btnNight.on{background:#2a3f8a;border-color:#8fb4ff;}
-  #btnPause,#btnSettings{pointer-events:auto;margin-left:10px;background:#20364a;color:#fff;
-    border:1px solid #4a6a8a;border-radius:6px;padding:2px 9px;cursor:pointer;font-size:14px;}
+  /* 상단 우측 버튼(메뉴 화면에서도 눌리도록 메뉴보다 위 레이어) */
+  #topBtns{position:fixed;top:6px;right:12px;z-index:40;display:flex;gap:8px;}
+  #btnPause,#btnSettings{pointer-events:auto;background:#20364a;color:#fff;
+    border:1px solid #4a6a8a;border-radius:6px;padding:4px 11px;cursor:pointer;font-size:15px;}
+  #btnPause:hover,#btnSettings:hover{border-color:#8fb4ff;}
   /* 설정 패널: 상단 ⚙ 버튼으로 열고 닫는다 */
-  #settingsPanel{position:fixed;top:46px;right:10px;z-index:12;display:none;flex-direction:column;gap:6px;
-    background:rgba(8,14,20,.92);border:1px solid #4a6a8a;border-radius:10px;padding:10px;min-width:190px;}
+  #settingsPanel{position:fixed;top:46px;right:12px;z-index:42;display:none;flex-direction:column;gap:6px;
+    background:rgba(8,14,20,.95);border:1px solid #4a6a8a;border-radius:10px;padding:10px;
+    width:330px;max-height:calc(100vh - 60px);overflow-y:auto;}
   #settingsPanel.open{display:flex;}
   #settingsPanel .ttl{color:#9fd6ff;font-size:12px;letter-spacing:.06em;padding:0 2px 2px;}
   #settingsPanel button{pointer-events:auto;display:flex;align-items:center;gap:8px;text-align:left;
@@ -124,14 +128,14 @@
   #bannerSub{top:52%;left:0;right:0;text-align:center;font-size:16px;color:#cfe;display:none;}
   /* 하루 플레이 제한 (메뉴) */
   #playInfo{color:#ffd76b;font-size:14px;min-height:18px;}
-  #limitBox{width:min(560px,86vw);background:rgba(12,20,30,.6);border:1px solid #33506e;
-    border-radius:10px;padding:12px 14px;text-align:left;font-size:13px;color:#cfe0f0;}
+  #limitBox{margin-top:6px;border-top:1px solid #33506e;padding-top:9px;
+    text-align:left;font-size:13px;color:#cfe0f0;}
   #limitBox .hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;color:#eaf4ff;}
   #limitBox #limitCur{margin-left:auto;color:#9fd6ff;}
   #limitBox .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;}
   #limitBox select,#limitBox input{background:#16283c;color:#eaf4ff;border:1px solid #4a6a8a;
     border-radius:6px;padding:6px 8px;font-size:13px;}
-  #limitBox input{flex:1;min-width:150px;}
+  #limitBox input{flex:1;min-width:110px;}
   #limitBox .lim-btn{background:#20364a;color:#fff;border:1px solid #4a6a8a;border-radius:6px;
     padding:6px 12px;cursor:pointer;font-size:13px;}
   #limitBox .lim-btn:hover{border-color:#8fb4ff;}
@@ -155,6 +159,8 @@
   <span class="cntGrp">O<span class="cnt" id="cntO"><div></div><div></div></span></span>
   <span id="basesInd"><div id="b2"></div><div id="b1"></div><div id="b3"></div></span>
   <span id="roleInd">⚾ 공격(타자)</span>
+</div>
+<div id="topBtns">
   <button id="btnPause" title="일시정지/재개">⏸</button>
   <button id="btnSettings" title="설정">⚙</button>
 </div>
@@ -166,6 +172,12 @@
   <button id="btnAssets" title="내 PC의 선수 사진·로고 연결 (KBO_DB_Builder/output 폴더 선택 — 내 화면에만 표시)">📁 <span>사진·로고 연결</span></button>
   <button id="btnPitchSpeed" title="공이 날아오는 속도만 느리게 (표기 구속은 그대로)">🐢 <span>투구 속도: 보통</span></button>
   <button id="btnDebug" title="디버그: CPU가 중앙 직구만 던짐">🐞 <span>디버그(중앙 직구)</span></button>
+  <div id="limitBox">
+    <div class="hdr"><b>하루 플레이 제한</b> <span id="limitCur">무제한</span><span id="limitLockIc"></span></div>
+    <div id="limitUI"></div>
+    <div class="note">한 경기 시작마다 1회로 계산합니다(자정 리셋). 변경하려면 비밀번호가 필요하며,
+      3회 틀리면 5분간 재입력이 잠깁니다.</div>
+  </div>
 </div>
 <div id="dpad">
   <button class="sp"></button><button data-dk="ArrowUp">▲</button><button class="sp"></button>
@@ -214,12 +226,6 @@
   </label>
   <button id="btnStart">경기 시작 (선공: 플레이어)</button>
   <div id="playInfo"></div>
-  <div id="limitBox">
-    <div class="hdr"><b>하루 플레이 제한</b> <span id="limitCur">무제한</span><span id="limitLockIc"></span></div>
-    <div id="limitUI"></div>
-    <div class="note">한 경기 시작마다 1회로 계산합니다(자정 리셋). 변경하려면 비밀번호가 필요하며,
-      3회 틀리면 5분간 재입력이 잠깁니다.</div>
-  </div>
 </div>
 <script src="lib/three.min.js"></script>
 <script src="kbo_data.js?v=3"></script><!-- KBO_DB_Builder 산출물(없으면 기본 팀으로 동작) -->
